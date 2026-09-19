@@ -16,7 +16,7 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
-            context.coordinator.aa = AlloyAA(device: device) // 🔥 初始化抗锯齿模块
+            context.coordinator.ssaa = AlloySSAA(device: device) // 🔥 初始化 SSAA 模块
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
         
@@ -32,7 +32,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var aa: AlloyAA? // 🔥 持有抗锯齿模块
+        var ssaa: AlloySSAA?
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -40,12 +40,14 @@ struct MetalView: UIViewRepresentable {
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
-                  let aa = aa,
+                  let ssaa = ssaa,
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
-            let width = Float(drawable.texture.width)
-            let height = Float(drawable.texture.height)
+            // 🔥 注意：这里因为渲染的是 2倍分辨率，投影计算也要乘以 2
+            let scale = renderer.renderScale
+            let width = Float(drawable.texture.width) * scale
+            let height = Float(drawable.texture.height) * scale
             time += 0.02
             
             let vertices3D: [SIMD3<Float>] = [
@@ -93,7 +95,7 @@ struct MetalView: UIViewRepresentable {
             }
             
             func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
-                let fov: Float = 800.0
+                let fov: Float = 800.0 * scale // FOV 也要乘 2
                 let z = max(v.z + 4.0, 0.1)
                 let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
@@ -152,11 +154,12 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            // 1. 渲染主场景
-            if let cmdBuffer = renderer.render(drawable: drawable, texture: texture, rawCommands: rawData) {
+            // 1. 渲染到 2x 分辨率纹理
+            if let cmdBuffer = renderer.render(drawable: drawable, texture: texture, rawCommands: rawData),
+               let ssaaTex = renderer.highResTexture {
                 
-                // 2. 调用 AlloyAA 进行抗锯齿
-                aa.applyAA(texture: drawable.texture, commandBuffer: cmdBuffer)
+                // 2. 把 2x 分辨率降采样到屏幕原生分辨率
+                ssaa.downsample(highRes: ssaaTex, lowRes: drawable.texture, commandBuffer: cmdBuffer)
                 
                 // 3. 呈现
                 cmdBuffer.present(drawable)
