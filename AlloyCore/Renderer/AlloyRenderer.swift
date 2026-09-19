@@ -38,22 +38,15 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 引擎接口：只负责接收顶点数据并光栅化
-    public func render(drawable: CAMetalDrawable, vertices: [Vertex]) {
+    // 🔥 引擎接口升级：接收一个三角形列表
+    public func render(drawable: CAMetalDrawable, triangles: [[Vertex]]) {
         let texture = drawable.texture
-        
-        // 数据为空就不画了
-        guard !vertices.isEmpty else { return }
-        
-        let vertexBuffer = device.makeBuffer(bytes: vertices,
-                                             length: MemoryLayout<Vertex>.stride * vertices.count,
-                                             options: .storageModeShared)
+        guard !triangles.isEmpty else { return }
         
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         
         encoder.setComputePipelineState(pipelineState)
-        encoder.setBuffer(vertexBuffer, offset: 0, index: 0)
         encoder.setTexture(texture, index: 0)
         
         let threadW = pipelineState.threadExecutionWidth
@@ -61,9 +54,17 @@ public class AlloyRenderer {
         let threadsPerThreadgroup = MTLSize(width: threadW, height: threadH, depth: 1)
         let threadsPerGrid = MTLSize(width: texture.width, height: texture.height, depth: 1)
         
-        encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
-        encoder.endEncoding()
+        // 🔥 核心：循环提交每一个三角形
+        // 这实际上模拟了 GPU 的多次 Draw Call
+        for triangle in triangles {
+            let vertexBuffer = device.makeBuffer(bytes: triangle,
+                                                 length: MemoryLayout<Vertex>.stride * triangle.count,
+                                                 options: .storageModeShared)
+            encoder.setBuffer(vertexBuffer, offset: 0, index: 0)
+            encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+        }
         
+        encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
