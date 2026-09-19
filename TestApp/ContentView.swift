@@ -149,8 +149,8 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            // 🔥 直接交给引擎渲染，不再经过超分模块，避免坐标和放大问题
-            if let cmdBuffer = renderer.render(texture: drawable.texture, rawCommands: rawData) {
+            // 🔥 直接渲染到屏幕纹理，告别黑屏！
+            if let cmdBuffer = renderer.render(drawable: drawable, texture: texture, rawCommands: rawData) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
