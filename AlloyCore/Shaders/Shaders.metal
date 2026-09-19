@@ -46,9 +46,9 @@ kernel void process_commands(
         while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
             uint opcode = rawCommands[i];
             if (opcode == 0x02) {
-                i += 4; // clearColor
+                i += 5; // 🔥 修复：clearColor 包含 1个 opcode + 4个 float
             } else if (opcode == 0x03) {
-                i += 5; // bindPipeline (新增：跳过管线状态)
+                i += 5; // bindPipeline 包含 1个 opcode + 4个 uint
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
