@@ -3,7 +3,7 @@ using namespace metal;
 
 // AlloySR：超分辨率放大 + 锐化
 kernel void upscale_pass(
-    texture2d<float, access::read> lowRes [[texture(0)]],
+    texture2d<float, access::sample> lowRes [[texture(0)]], // 🔥 改为 access::sample
     texture2d<float, access::write> highRes [[texture(1)]],
     uint2 gid [[thread_position_in_grid]]
 ) {
