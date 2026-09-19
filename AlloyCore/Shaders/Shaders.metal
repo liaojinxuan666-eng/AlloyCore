@@ -1,8 +1,8 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// 🔥 步长从 25 变成 27
-constant int STRIDE = 27;
+// 🔥 步长从 27 变成 36
+constant int STRIDE = 36;
 
 kernel void process_commands(
     device const float* rawCommands [[buffer(0)]],
@@ -20,7 +20,10 @@ kernel void process_commands(
     
     float2 pixel_pos = float2(gid) + 0.5;
     float4 finalColor = float4(0.0, 0.0, 0.0, 1.0);
-    float closestInvZ = -1e9; // 注意：现在比较的是 1/z，越大越近
+    float closestInvZ = -1e9;
+
+    // 简单光照方向（从右上方打光）
+    float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
     for (uint i = 0; i < commandCount; i++) {
         uint offset = i * STRIDE;
@@ -37,12 +40,15 @@ kernel void process_commands(
         float2 uv1 = float2(rawCommands[offset + 20], rawCommands[offset + 21]);
         float2 uv2 = float2(rawCommands[offset + 22], rawCommands[offset + 23]);
         
-        // 🔥 读取每个顶点的 1/z
         float invZ0 = rawCommands[offset + 24];
         float invZ1 = rawCommands[offset + 25];
         float invZ2 = rawCommands[offset + 26];
         
-        // 包围盒剔除
+        // 🔥 解析法线
+        float3 n0 = float3(rawCommands[offset + 27], rawCommands[offset + 28], rawCommands[offset + 29]);
+        float3 n1 = float3(rawCommands[offset + 30], rawCommands[offset + 31], rawCommands[offset + 32]);
+        float3 n2 = float3(rawCommands[offset + 33], rawCommands[offset + 34], rawCommands[offset + 35]);
+        
         float minX = min(min(p0.x, p1.x), p2.x);
         float maxX = max(max(p0.x, p1.x), p2.x);
         float minY = min(min(p0.y, p1.y), p2.y);
@@ -69,19 +75,22 @@ kernel void process_commands(
         float w = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            // 🔥 核心：透视校正插值
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
             
-            // 🔥 真正的逐像素深度测试
             if (invZInterp > closestInvZ) {
                 closestInvZ = invZInterp;
                 
-                // 透视校正 UV
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
-                
                 float4 texColor = texture.sample(textureSampler, uvInterp);
                 float4 vertexColor = w * c0 + u * c1 + v * c2;
-                finalColor = vertexColor * texColor;
+                
+                // 🔥 插值法线并归一化
+                float3 normal = normalize(w * n0 + u * n1 + v * n2);
+                
+                // 🔥 计算 Lambertian 光照强度，环境光设为 0.2
+                float intensity = max(dot(normal, lightDir), 0.2);
+                
+                finalColor = vertexColor * texColor * intensity;
             }
         }
     }
