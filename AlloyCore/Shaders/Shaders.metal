@@ -33,7 +33,7 @@ kernel void process_commands(
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup uint tileTriangleCount;
     
-    // TBDR 深度缓冲区：每个线程负责自己那个像素的深度，索引是 localId.y * 16 + localId.x
+    // TBDR 深度缓冲区：每个线程负责自己那个像素的深度
     threadgroup float tileDepthBuffer[256];
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
@@ -154,8 +154,8 @@ kernel void process_commands(
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
             
-            // 🔥 如果当前像素的深度正好等于共享内存里记录的最浅深度，说明它没有被遮挡，开始着色！
-            if (invZInterp == tileDepthBuffer[pixelIndex]) {
+            // 🔥 关键修复：用容差替代精确比较，防止浮点数精度导致的噪点
+            if (abs(invZInterp - tileDepthBuffer[pixelIndex]) < 0.0001) {
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
                 float4 texColor = texture.sample(textureSampler, uvInterp);
                 float4 vertexColor = w * c0 + u * c1 + v * c2;
