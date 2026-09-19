@@ -28,7 +28,6 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 接收 UInt32 二进制指令流
     public func render(drawable: CAMetalDrawable, texture: MTLTexture, rawCommands: [UInt32]) {
         let drawableTexture = drawable.texture
         guard !rawCommands.isEmpty else { return }
@@ -37,8 +36,8 @@ public class AlloyRenderer {
                                               length: rawCommands.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
         
-        // 步长依然是 36 个 32位数据
-        var commandCount = UInt32(rawCommands.count / 36)
+        // 🔥 现在的 commandCount 是数组的总长度
+        var commandCount = UInt32(rawCommands.count)
         
         guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
               let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
