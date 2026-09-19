@@ -16,7 +16,6 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
-            context.coordinator.sr = AlloySR(device: device)
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
         
@@ -32,7 +31,6 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var sr: AlloySR?
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -40,18 +38,11 @@ struct MetalView: UIViewRepresentable {
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
-                  let sr = sr,
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
-            let fullWidth = Float(drawable.texture.width)
-            let fullHeight = Float(drawable.texture.height)
-            
-            // 🔥 核心修复：投影计算必须基于低分辨率画布！
-            let renderScale: Float = 0.5
-            let width = fullWidth * renderScale
-            let height = fullHeight * renderScale
-            
+            let width = Float(drawable.texture.width)
+            let height = Float(drawable.texture.height)
             time += 0.02
             
             let vertices3D: [SIMD3<Float>] = [
@@ -101,7 +92,7 @@ struct MetalView: UIViewRepresentable {
             func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
                 let fov: Float = 800.0
                 let z = max(v.z + 4.0, 0.1)
-                let x = v.x * fov / z + width / 2 // 这里现在用的是低分辨率宽度
+                let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
@@ -158,11 +149,8 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            if let cmdBuffer = renderer.render(texture: drawable.texture, rawCommands: rawData),
-               let lowRes = renderer.lowResTexture {
-                
-                sr.upscale(lowRes: lowRes, highRes: drawable.texture, commandBuffer: cmdBuffer)
-                
+            // 🔥 直接交给引擎渲染，不再经过超分模块，避免坐标和放大问题
+            if let cmdBuffer = renderer.render(texture: drawable.texture, rawCommands: rawData) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
