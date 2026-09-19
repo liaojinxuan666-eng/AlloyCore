@@ -15,6 +15,11 @@ struct MetalView: UIViewRepresentable {
         let renderer = AlloyRenderer()
         context.coordinator.renderer = renderer
         
+        // 🔥 初始化独立的超分模块
+        if let device = view.device {
+            context.coordinator.sr = AlloySR(device: device)
+        }
+        
         if let device = view.device {
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
@@ -31,6 +36,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
+        var sr: AlloySR? // 🔥 持有超分模块
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -38,6 +44,7 @@ struct MetalView: UIViewRepresentable {
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
+                  let sr = sr,
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
@@ -97,10 +104,9 @@ struct MetalView: UIViewRepresentable {
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            // 🔥 构建真正的二进制指令流
             var rawData: [UInt32] = []
             
-            // 指令 0x02：设置背景色（深灰蓝）
+            // 指令 0x02：设置背景色
             rawData.append(0x02)
             rawData.append(Float(0.1).bitPattern)
             rawData.append(Float(0.1).bitPattern)
@@ -128,7 +134,6 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                // 指令 0x01：画三角形
                 rawData.append(0x01)
                 appendFloats([
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
@@ -140,7 +145,6 @@ struct MetalView: UIViewRepresentable {
                     n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
                 ])
                 
-                // 指令 0x01：画三角形（第二个）
                 rawData.append(0x01)
                 appendFloats([
                     p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
@@ -153,7 +157,17 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            renderer.render(drawable: drawable, texture: texture, rawCommands: rawData)
+            // 🔥 1. 让引擎渲染低分辨率纹理，返回 CommandBuffer
+            if let cmdBuffer = renderer.render(texture: drawable.texture, rawCommands: rawData),
+               let lowRes = renderer.lowResTexture {
+                
+                // 🔥 2. 将 CommandBuffer 和低分辨率纹理交给超分模块放大
+                sr.upscale(lowRes: lowRes, highRes: drawable.texture, commandBuffer: cmdBuffer)
+                
+                // 🔥 3. 提交呈现
+                cmdBuffer.present(drawable)
+                cmdBuffer.commit()
+            }
         }
     }
 }
