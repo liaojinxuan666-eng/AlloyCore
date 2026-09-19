@@ -22,6 +22,13 @@ jobs:
     - name: Generate Xcode Project
       run: xcodegen generate
 
+    - name: Patch project object version (fix Xcode 15.4 compatibility)
+      run: |
+        # 强制将工程文件版本从 77 降级到 56
+        sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' AlloyCore.xcodeproj/project.pbxproj
+        # 顺便把 Xcode 兼容版本也改一下，防止其他报错
+        sed -i '' 's/LastUpgradeCheck = 1600;/LastUpgradeCheck = 1540;/g' AlloyCore.xcodeproj/project.pbxproj
+
     - name: Build TestApp
       run: |
         CODE_SIGNING_ALLOWED=NO xcodebuild \
