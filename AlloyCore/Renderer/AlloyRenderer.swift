@@ -11,7 +11,6 @@ public struct Vertex {
     }
 }
 
-// 🔥 指令结构体
 public struct DrawTriangleCommand {
     public var v0: Vertex
     public var v1: Vertex
@@ -35,7 +34,7 @@ public class AlloyRenderer {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else { return nil }
         self.device = device
-        self.commandQueue = commandQueue
+        self.commandQueue接近 = commandQueue
         
         let bundle = Bundle(for: AlloyRenderer.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
@@ -52,12 +51,10 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 引擎接口：接收指令流
     public func render(drawable: CAMetalDrawable, commands: [DrawTriangleCommand]) {
         let texture = drawable.texture
         guard !commands.isEmpty else { return }
         
-        // 将所有指令打包进一个大的 MTLBuffer
         let commandBuffer = device.makeBuffer(bytes: commands,
                                               length: MemoryLayout<DrawTriangleCommand>.stride * commands.count,
                                               options: .storageModeShared)
@@ -69,15 +66,13 @@ public class AlloyRenderer {
         
         encoder.setComputePipelineState(pipelineState)
         encoder.setBuffer(commandBuffer, offset: 0, index: 0)
-        encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1) // 传递指令数量
+        encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
         encoder.setTexture(texture, index: 0)
         
-        let threadW = pipelineState.threadExecutionWidth
-        let threadH = pipelineState.maxTotalThreadsPerThreadgroup / threadW
-        let threadsPerThreadgroup = MTLSize(width: threadW, height: threadH, depth: 1)
+        // 🔥 核心改动：显式指定 16x16 的 Tile（多点协作小组）
+        let threadsPerThreadgroup = MTLSize(width: 16, height: 16, depth: 1)
         let threadsPerGrid = MTLSize(width: texture.width, height: texture.height, depth: 1)
         
-        // 🔥 只派发一次！让 GPU 自己去循环遍历指令流
         encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
         
