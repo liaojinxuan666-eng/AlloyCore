@@ -16,6 +16,7 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
+            context.coordinator.aa = AlloyAA(device: device) // 🔥 初始化抗锯齿模块
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
         
@@ -31,6 +32,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
+        var aa: AlloyAA? // 🔥 持有抗锯齿模块
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -38,6 +40,7 @@ struct MetalView: UIViewRepresentable {
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
+                  let aa = aa,
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
@@ -149,8 +152,13 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            // 🔥 直接渲染到屏幕纹理，告别黑屏！
+            // 1. 渲染主场景
             if let cmdBuffer = renderer.render(drawable: drawable, texture: texture, rawCommands: rawData) {
+                
+                // 2. 调用 AlloyAA 进行抗锯齿
+                aa.applyAA(texture: drawable.texture, commandBuffer: cmdBuffer)
+                
+                // 3. 呈现
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
