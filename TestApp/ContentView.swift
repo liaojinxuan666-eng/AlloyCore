@@ -57,7 +57,6 @@ struct MetalView: UIViewRepresentable {
                 [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
             ]
             
-            // 🔥 每个面对应的法线向量
             let faceNormals: [SIMD3<Float>] = [
                 SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0),
                 SIMD3<Float>(0, 0, 1),  SIMD3<Float>(-1, 0, 0),
@@ -98,7 +97,14 @@ struct MetalView: UIViewRepresentable {
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            var rawData: [Float] = []
+            // 🔥 核心变化：由 [Float] 改为 [UInt32]，将 Float 压缩为二进制位模式
+            var rawData: [UInt32] = []
+            
+            func appendFloats(_ floats: [Float]) {
+                for f in floats {
+                    rawData.append(f.bitPattern)
+                }
+            }
             
             for (faceIdx, indices) in faceIndices.enumerated() {
                 let v0 = rotate(vertices3D[indices[0]])
@@ -106,7 +112,7 @@ struct MetalView: UIViewRepresentable {
                 let v2 = rotate(vertices3D[indices[2]])
                 let v3 = rotate(vertices3D[indices[3]])
                 
-                let n = rotate(faceNormals[faceIdx]) // 同步旋转法线
+                let n = rotate(faceNormals[faceIdx])
                 
                 let (p0, z0) = project(v0)
                 let (p1, z1) = project(v1)
@@ -117,18 +123,18 @@ struct MetalView: UIViewRepresentable {
                 let uvs = faceUVs[faceIdx]
                 
                 // 三角形 1 (p0, p1, p2)
-                rawData.append(contentsOf: [
+                appendFloats([
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y,
                     z0, z1, z2,
-                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z // 3 个顶点的法线
+                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
                 ])
                 
                 // 三角形 2 (p0, p2, p3)
-                rawData.append(contentsOf: [
+                appendFloats([
                     p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
