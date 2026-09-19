@@ -1,9 +1,12 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// 每个绘制指令包含 1 个 opcode + 36 个数据 = 37 个 uint
+constant int STRIDE = 37;
+
 kernel void process_commands(
     device const uint* rawCommands [[buffer(0)]],
-    constant uint& commandCount [[buffer(1)]], // 现在是数组总长度
+    constant uint& commandCount [[buffer(1)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> texture [[texture(1)]],
     uint2 gid [[thread_position_in_grid]],
@@ -16,30 +19,19 @@ kernel void process_commands(
     uint2 tileMax = tileMin + tileSize;
     
     float2 pixel_pos = float2(gid) + 0.5;
-    
-    // 🔥 初始背景色
     float4 finalColor = float4(0.0, 0.0, 0.0, 1.0);
     float closestInvZ = -1e9;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    // 🔥 使用 while 循环，因为每条指令的长度是不固定的
     uint i = 0;
     while (i < commandCount) {
         uint opcode = rawCommands[i];
         
         if (opcode == 0x02) {
-            // 指令 0x02：设置背景色 (3 个 float)
-            finalColor = float4(
-                as_type<float>(rawCommands[i+1]),
-                as_type<float>(rawCommands[i+2]),
-                as_type<float>(rawCommands[i+3]),
-                1.0
-            );
+            finalColor = float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), 1.0);
             i += 4;
         }
         else if (opcode == 0x01) {
-            // 指令 0x01：绘制三角形 (36 个 float)
-            // 数据从 i+1 开始
             uint offset = i + 1;
             
             float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
@@ -62,7 +54,6 @@ kernel void process_commands(
             float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
             float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
             
-            // 包围盒剔除
             float minX = min(min(p0.x, p1.x), p2.x);
             float maxX = max(max(p0.x, p1.x), p2.x);
             float minY = min(min(p0.y, p1.y), p2.y);
@@ -103,12 +94,9 @@ kernel void process_commands(
                     }
                 }
             }
-            
-            // 推进指针：1 个 opcode + 36 个数据
-            i += 37;
+            i += STRIDE;
         }
         else {
-            // 未知指令，跳出循环，防止死循环
             break;
         }
     }
