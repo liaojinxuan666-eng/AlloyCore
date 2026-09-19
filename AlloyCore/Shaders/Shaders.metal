@@ -1,46 +1,41 @@
 #include <metal_stdlib>
 using namespace metal;
 
-struct Vertex {
-    float2 position;
-    float4 color;
-};
-
-struct DrawTriangleCommand {
-    Vertex v0;
-    Vertex v1;
-    Vertex v2;
-    float z;
-};
+// 每个指令包含 19 个 float，固定步长
+constant int STRIDE = 19;
 
 kernel void process_commands(
-    device const DrawTriangleCommand* commands [[buffer(0)]],
+    device const float* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
     texture2d<float, access::write> output [[texture(0)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]],
-    uint2 localId [[thread_position_in_threadgroup]],
     uint2 tileSize [[threads_per_threadgroup]]
 ) {
-    // 当前 Tile 负责的屏幕区域范围
     uint2 tileMin = tileOrigin * tileSize;
     uint2 tileMax = tileMin + tileSize;
     
-    // 当前线程负责的具体像素
     float2 pixel_pos = float2(gid) + 0.5;
     float4 finalColor = float4(0.0, 0.0, 0.0, 1.0);
     float closestZ = -1e9;
 
-    // 线程组内的所有线程，一起遍历指令流
     for (uint i = 0; i < commandCount; i++) {
-        DrawTriangleCommand cmd = commands[i];
+        uint offset = i * STRIDE;
         
-        float2 p0 = cmd.v0.position;
-        float2 p1 = cmd.v1.position;
-        float2 p2 = cmd.v2.position;
+        // 解析位置数据 (float2)
+        float2 p0 = float2(rawCommands[offset + 0], rawCommands[offset + 1]);
+        float2 p1 = float2(rawCommands[offset + 2], rawCommands[offset + 3]);
+        float2 p2 = float2(rawCommands[offset + 4], rawCommands[offset + 5]);
         
-        // 简单剔除：如果三角形的包围盒和当前 Tile 完全没有交集，跳过
-        // (这是 Tile-based 渲染的最基本优化，我们让同一个线程组内的线程共享这个判断)
+        // 解析颜色数据 (float4)
+        float4 c0 = float4(rawCommands[offset + 6], rawCommands[offset + 7], rawCommands[offset + 8], rawCommands[offset + 9]);
+        float4 c1 = float4(rawCommands[offset + 10], rawCommands[offset + 11], rawCommands[offset + 12], rawCommands[offset + 13]);
+        float4 c2 = float4(rawCommands[offset + 14], rawCommands[offset + 15], rawCommands[offset + 16], rawCommands[offset + 17]);
+        
+        // 解析深度数据 (float)
+        float z = rawCommands[offset + 18];
+        
+        // 简单剔除
         float minX = min(min(p0.x, p1.x), p2.x);
         float maxX = max(max(p0.x, p1.x), p2.x);
         float minY = min(min(p0.y, p1.y), p2.y);
@@ -48,10 +43,9 @@ kernel void process_commands(
         
         if (maxX < float(tileMin.x) || minX > float(tileMax.x) || 
             maxY < float(tileMin.y) || minY > float(tileMax.y)) {
-            continue; // 这个三角形跟当前 Tile 无关，整个线程组一起跳过
+            continue;
         }
         
-        // 计算重心坐标
         float2 v0 = p1 - p0;
         float2 v1 = p2 - p0;
         float2 v2 = pixel_pos - p0;
@@ -68,9 +62,9 @@ kernel void process_commands(
         float w = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            if (cmd.z > closestZ) {
-                closestZ = cmd.z;
-                finalColor = w * cmd.v0.color + u * cmd.v1.color + v * cmd.v2.color;
+            if (z > closestZ) {
+                closestZ = z;
+                finalColor = w * c0 + u * c1 + v * c2;
             }
         }
     }
