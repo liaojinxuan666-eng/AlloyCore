@@ -97,8 +97,14 @@ struct MetalView: UIViewRepresentable {
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            // 🔥 核心变化：由 [Float] 改为 [UInt32]，将 Float 压缩为二进制位模式
+            // 🔥 构建真正的二进制指令流
             var rawData: [UInt32] = []
+            
+            // 指令 0x02：设置背景色（深灰蓝）
+            rawData.append(0x02)
+            rawData.append(Float(0.1).bitPattern)
+            rawData.append(Float(0.1).bitPattern)
+            rawData.append(Float(0.15).bitPattern)
             
             func appendFloats(_ floats: [Float]) {
                 for f in floats {
@@ -122,7 +128,8 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                // 三角形 1 (p0, p1, p2)
+                // 指令 0x01：画三角形
+                rawData.append(0x01)
                 appendFloats([
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
                     color.x, color.y, color.z, color.w,
@@ -133,7 +140,8 @@ struct MetalView: UIViewRepresentable {
                     n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
                 ])
                 
-                // 三角形 2 (p0, p2, p3)
+                // 指令 0x01：画三角形（第二个）
+                rawData.append(0x01)
                 appendFloats([
                     p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
                     color.x, color.y, color.z, color.w,
