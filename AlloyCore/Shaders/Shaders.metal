@@ -29,44 +29,39 @@ kernel void process_commands(
     float4 finalColor = float4(0.0, 0.0, 0.0, 1.0);
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    // 🔥 1. 线程组共享内存：存储三角形索引 + 每个像素的深度缓冲区
+    // ==========================================
+    // 🔥 1. 共享内存：原子计数器 + 指令偏移量缓存 + 筛选结果
+    // ==========================================
+    threadgroup atomic_uint tileTriangleCount;
+    threadgroup uint triangleOffsets[MAX_TILE_TRIANGLES];
+    threadgroup uint triangleOffsetCount;
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
-    threadgroup uint tileTriangleCount;
     
-    // TBDR 深度缓冲区：每个线程负责自己那个像素的深度
+    // TBDR 深度缓冲区
     threadgroup float tileDepthBuffer[256];
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     // 初始化
     if (localId.x == 0 && localId.y == 0) {
-        tileTriangleCount = 0;
+        atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
+        triangleOffsetCount = 0;
     }
-    tileDepthBuffer[pixelIndex] = -1e9; // 初始深度设为极远
+    tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 2. 多点协作筛选：组长负责筛选并记录与当前 Tile 相交的三角形
+    // ==========================================
+    // 🔥 2. 预处理：解析指令流，提取所有绘制指令的偏移量
+    // （由线程 0 快速完成，避免变长指令并行解析的复杂性）
+    // ==========================================
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
-        while (i < commandCount && tileTriangleCount < MAX_TILE_TRIANGLES) {
+        while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
             uint opcode = rawCommands[i];
             if (opcode == 0x02) {
                 i += 4;
             } else if (opcode == 0x01) {
-                uint offset = i + 1;
-                float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
-                float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
-                float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
-                
-                float minX = min(min(p0.x, p1.x), p2.x);
-                float maxX = max(max(p0.x, p1.x), p2.x);
-                float minY = min(min(p0.y, p1.y), p2.y);
-                float maxY = max(max(p0.y, p1.y), p2.y);
-                
-                if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
-                    maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
-                    tileTriangleIndices[tileTriangleCount] = i;
-                    tileTriangleCount++;
-                }
+                triangleOffsets[triangleOffsetCount] = i; // 记录指令索引
+                triangleOffsetCount++;
                 i += STRIDE;
             } else {
                 break;
@@ -75,8 +70,41 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 3. 深度预通道 (Depth Pre-pass)：遍历筛选出的三角形，只计算深度，写入共享内存
-    for (uint t = 0; t < tileTriangleCount; t++) {
+    // ==========================================
+    // 🔥 3. 动态负载均衡：所有线程并行筛选三角形
+    // ==========================================
+    uint tid = localId.y * TILE_SIZE + localId.x; // 0 ~ 255
+    for (uint t = tid; t < triangleOffsetCount; t += TILE_SIZE * TILE_SIZE) {
+        uint offset = triangleOffsets[t] + 1;
+        
+        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
+        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
+        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
+        
+        float minX = min(min(p0.x, p1.x), p2.x);
+        float maxX = max(max(p0.x, p1.x), p2.x);
+        float minY = min(min(p0.y, p1.y), p2.y);
+        float maxY = max(max(p0.y, p1.y), p2.y);
+        
+        if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
+            maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
+            // 🔥 原子操作：多个线程同时抢一个索引，保证不冲突
+            uint idx = atomic_fetch_add_explicit(&tileTriangleCount, 1, memory_order_relaxed);
+            if (idx < MAX_TILE_TRIANGLES) {
+                tileTriangleIndices[idx] = triangleOffsets[t];
+            }
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    // 获取最终筛选出的三角形数量
+    uint finalTriangleCount = atomic_load_explicit(&tileTriangleCount, memory_order_relaxed);
+    if (finalTriangleCount > MAX_TILE_TRIANGLES) finalTriangleCount = MAX_TILE_TRIANGLES;
+
+    // ==========================================
+    // 🔥 4. 深度预通道 (Depth Pre-pass)
+    // ==========================================
+    for (uint t = 0; t < finalTriangleCount; t++) {
         uint offset = tileTriangleIndices[t] + 1;
         
         float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
@@ -104,7 +132,6 @@ kernel void process_commands(
         
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
-            // 只更新深度，不采样纹理，不算光照！
             if (invZInterp > tileDepthBuffer[pixelIndex]) {
                 tileDepthBuffer[pixelIndex] = invZInterp;
             }
@@ -112,8 +139,10 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 4. 着色通道 (Shading Pass)：再次遍历，只有深度匹配的像素才进行昂贵的计算
-    for (uint t = 0; t < tileTriangleCount; t++) {
+    // ==========================================
+    // 🔥 5. 着色通道 (Shading Pass)
+    // ==========================================
+    for (uint t = 0; t < finalTriangleCount; t++) {
         uint offset = tileTriangleIndices[t] + 1;
         
         float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
@@ -154,7 +183,7 @@ kernel void process_commands(
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
             
-            // 🔥 关键修复：用容差替代精确比较，防止浮点数精度导致的噪点
+            // 浮点数容差修复
             if (abs(invZInterp - tileDepthBuffer[pixelIndex]) < 0.0001) {
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
                 float4 texColor = texture.sample(textureSampler, uvInterp);
