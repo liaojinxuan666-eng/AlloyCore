@@ -7,6 +7,9 @@ constant int STRIDE = 37;
 // 共享内存最多缓存的三角形数量
 constant int MAX_TILE_TRIANGLES = 64;
 
+// 假设每个线程组是 16x16 = 256 个线程
+constant int TILE_SIZE = 16;
+
 kernel void process_commands(
     device const uint* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
@@ -24,20 +27,24 @@ kernel void process_commands(
     
     float2 pixel_pos = float2(gid) + 0.5;
     float4 finalColor = float4(0.0, 0.0, 0.0, 1.0);
-    float closestInvZ = -1e9;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    // 🔥 1. 声明线程组共享内存，用于缓存筛选后的三角形
+    // 🔥 1. 线程组共享内存：存储三角形索引 + 每个像素的深度缓冲区
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup uint tileTriangleCount;
     
-    // 初始化计数器
+    // TBDR 深度缓冲区：每个线程负责自己那个像素的深度，索引是 localId.y * 16 + localId.x
+    threadgroup float tileDepthBuffer[256];
+    uint pixelIndex = localId.y * TILE_SIZE + localId.x;
+    
+    // 初始化
     if (localId.x == 0 && localId.y == 0) {
         tileTriangleCount = 0;
     }
+    tileDepthBuffer[pixelIndex] = -1e9; // 初始深度设为极远
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 2. 多点协作：组长负责筛选并记录与当前 Tile 相交的三角形
+    // 🔥 2. 多点协作筛选：组长负责筛选并记录与当前 Tile 相交的三角形
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount && tileTriangleCount < MAX_TILE_TRIANGLES) {
@@ -55,7 +62,6 @@ kernel void process_commands(
                 float minY = min(min(p0.y, p1.y), p2.y);
                 float maxY = max(max(p0.y, p1.y), p2.y);
                 
-                // 包围盒剔除：如果三角形和当前 Tile 相交，记录下来
                 if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
                     maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
                     tileTriangleIndices[tileTriangleCount] = i;
@@ -67,10 +73,46 @@ kernel void process_commands(
             }
         }
     }
-    // 等待组长完成筛选
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 3. 组内所有线程遍历共享内存里筛选好的三角形，计算像素颜色
+    // 🔥 3. 深度预通道 (Depth Pre-pass)：遍历筛选出的三角形，只计算深度，写入共享内存
+    for (uint t = 0; t < tileTriangleCount; t++) {
+        uint offset = tileTriangleIndices[t] + 1;
+        
+        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
+        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
+        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
+        
+        float invZ0 = as_type<float>(rawCommands[offset + 24]);
+        float invZ1 = as_type<float>(rawCommands[offset + 25]);
+        float invZ2 = as_type<float>(rawCommands[offset + 26]);
+        
+        float2 v0 = p1 - p0;
+        float2 v1 = p2 - p0;
+        float2 v2 = pixel_pos - p0;
+        
+        float dot00 = dot(v0, v0);
+        float dot01 = dot(v0, v1);
+        float dot02 = dot(v0, v2);
+        float dot11 = dot(v1, v1);
+        float dot12 = dot(v1, v2);
+        
+        float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+        float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+        float w = 1.0 - u - v;
+        
+        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
+            float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
+            // 只更新深度，不采样纹理，不算光照！
+            if (invZInterp > tileDepthBuffer[pixelIndex]) {
+                tileDepthBuffer[pixelIndex] = invZInterp;
+            }
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // 🔥 4. 着色通道 (Shading Pass)：再次遍历，只有深度匹配的像素才进行昂贵的计算
     for (uint t = 0; t < tileTriangleCount; t++) {
         uint offset = tileTriangleIndices[t] + 1;
         
@@ -112,10 +154,8 @@ kernel void process_commands(
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
             
-            // Early-Z
-            if (invZInterp > closestInvZ) {
-                closestInvZ = invZInterp;
-                
+            // 🔥 如果当前像素的深度正好等于共享内存里记录的最浅深度，说明它没有被遮挡，开始着色！
+            if (invZInterp == tileDepthBuffer[pixelIndex]) {
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
                 float4 texColor = texture.sample(textureSampler, uvInterp);
                 float4 vertexColor = w * c0 + u * c1 + v * c2;
