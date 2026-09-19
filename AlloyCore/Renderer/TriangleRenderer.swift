@@ -23,9 +23,13 @@ public class TriangleRenderer {
         self.device = device
         self.commandQueue = commandQueue
         
-        // 1. 加载 Metal 库并创建 Compute Pipeline
-        guard let library = device.makeDefaultLibrary(),
-              let kernel = library.makeFunction(name: "rasterize_triangle") else { return nil }
+        // 🔥 核心修复：从 AlloyCore 这个 Framework 的 Bundle 里加载 Metal 库！
+        let bundle = Bundle(for: TriangleRenderer.self)
+        guard let library = try? device.makeDefaultLibrary(bundle: bundle),
+              let kernel = library.makeFunction(name: "rasterize_triangle") else {
+            print("AlloyCore 初始化失败：无法加载 Metal 库或找到 rasterize_triangle 函数")
+            return nil
+        }
         
         do {
             pipelineState = try device.makeComputePipelineState(function: kernel)
@@ -36,7 +40,7 @@ public class TriangleRenderer {
     }
     
     public func render(to texture: MTLTexture) {
-        // 2. 定义三角形顶点 (假设画布是 1024x1024)
+        // 2. 定义三角形顶点
         let vertices = [
             Vertex(position: SIMD2<Float>(512, 100), color: SIMD4<Float>(1, 0, 0, 1)), // 红
             Vertex(position: SIMD2<Float>(100, 900), color: SIMD4<Float>(0, 1, 0, 1)), // 绿
@@ -55,7 +59,7 @@ public class TriangleRenderer {
         encoder.setBuffer(vertexBuffer, offset: 0, index: 0)
         encoder.setTexture(texture, index: 0)
         
-        // 4. 多点协作调度核心：分配线程组和网格
+        // 4. 多点协作调度核心
         let w = pipelineState.threadExecutionWidth
         let h = pipelineState.maxTotalThreadsPerThreadgroup / w
         let threadsPerThreadgroup = MTLSize(width: w, height: h, depth: 1)
