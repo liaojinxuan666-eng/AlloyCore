@@ -97,13 +97,12 @@ struct MetalView: UIViewRepresentable {
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            // 🔥 1. 初始化 GAL
             let gal = AlloyGAL()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            pso.cullMode = 1 // 开启背面剔除
+            pso.cullMode = 1
             gal.bindPipeline(pso)
             
             for (faceIdx, indices) in faceIndices.enumerated() {
@@ -122,23 +121,24 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                // 🔥 2. 使用 GAL 接口提交三角形
+                // 🔥 修复：传入真实的 z0, z1, z2
                 gal.drawTriangle(
                     p0: p0, p1: p1, p2: p2,
-                    color: color, z: (z0 + z1 + z2) / 3.0,
+                    color: color,
+                    z0: z0, z1: z1, z2: z2,
                     uv0: uvs[0], uv1: uvs[1], uv2: uvs[2],
                     n0: n, n1: n, n2: n
                 )
                 
                 gal.drawTriangle(
                     p0: p0, p1: p2, p2: p3,
-                    color: color, z: (z0 + z2 + z3) / 3.0,
+                    color: color,
+                    z0: z0, z1: z2, z2: z3,
                     uv0: uvs[0], uv1: uvs[2], uv2: uvs[3],
                     n0: n, n1: n, n2: n
                 )
             }
             
-            // 🔥 3. 提交给引擎渲染
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture: texture) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
