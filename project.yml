@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.alloycore
   deploymentTarget:
     iOS: "15.0"
+  objectVersion: 56
 
 targets:
   AlloyCore:
