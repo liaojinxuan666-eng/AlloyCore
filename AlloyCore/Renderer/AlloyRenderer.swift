@@ -5,10 +5,24 @@ import QuartzCore
 public struct Vertex {
     public var position: SIMD2<Float>
     public var color: SIMD4<Float>
-    
     public init(position: SIMD2<Float>, color: SIMD4<Float>) {
         self.position = position
         self.color = color
+    }
+}
+
+// 🔥 指令结构体
+public struct DrawTriangleCommand {
+    public var v0: Vertex
+    public var v1: Vertex
+    public var v2: Vertex
+    public var z: Float
+    
+    public init(v0: Vertex, v1: Vertex, v2: Vertex, z: Float) {
+        self.v0 = v0
+        self.v1 = v1
+        self.v2 = v2
+        self.z = z
     }
 }
 
@@ -25,7 +39,7 @@ public class AlloyRenderer {
         
         let bundle = Bundle(for: AlloyRenderer.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
-              let kernel = library.makeFunction(name: "rasterize_triangle") else {
+              let kernel = library.makeFunction(name: "process_commands") else {
             print("AlloyCore 初始化失败：无法加载 Metal 库")
             return nil
         }
@@ -38,15 +52,24 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 引擎接口升级：接收一个三角形列表
-    public func render(drawable: CAMetalDrawable, triangles: [[Vertex]]) {
+    // 🔥 引擎接口：接收指令流
+    public func render(drawable: CAMetalDrawable, commands: [DrawTriangleCommand]) {
         let texture = drawable.texture
-        guard !triangles.isEmpty else { return }
+        guard !commands.isEmpty else { return }
         
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
+        // 将所有指令打包进一个大的 MTLBuffer
+        let commandBuffer = device.makeBuffer(bytes: commands,
+                                              length: MemoryLayout<DrawTriangleCommand>.stride * commands.count,
+                                              options: .storageModeShared)
+        
+        var commandCount = UInt32(commands.count)
+        
+        guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
         
         encoder.setComputePipelineState(pipelineState)
+        encoder.setBuffer(commandBuffer, offset: 0, index: 0)
+        encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1) // 传递指令数量
         encoder.setTexture(texture, index: 0)
         
         let threadW = pipelineState.threadExecutionWidth
@@ -54,18 +77,11 @@ public class AlloyRenderer {
         let threadsPerThreadgroup = MTLSize(width: threadW, height: threadH, depth: 1)
         let threadsPerGrid = MTLSize(width: texture.width, height: texture.height, depth: 1)
         
-        // 🔥 核心：循环提交每一个三角形
-        // 这实际上模拟了 GPU 的多次 Draw Call
-        for triangle in triangles {
-            let vertexBuffer = device.makeBuffer(bytes: triangle,
-                                                 length: MemoryLayout<Vertex>.stride * triangle.count,
-                                                 options: .storageModeShared)
-            encoder.setBuffer(vertexBuffer, offset: 0, index: 0)
-            encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
-        }
-        
+        // 🔥 只派发一次！让 GPU 自己去循环遍历指令流
+        encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
+        
+        cmdQueueBuffer.present(drawable)
+        cmdQueueBuffer.commit()
     }
 }
