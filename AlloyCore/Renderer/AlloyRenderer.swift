@@ -2,29 +2,6 @@ import Metal
 import simd
 import QuartzCore
 
-public struct Vertex {
-    public var position: SIMD2<Float>
-    public var color: SIMD4<Float>
-    public init(position: SIMD2<Float>, color: SIMD4<Float>) {
-        self.position = position
-        self.color = color
-    }
-}
-
-public struct DrawTriangleCommand {
-    public var v0: Vertex
-    public var v1: Vertex
-    public var v2: Vertex
-    public var z: Float
-    
-    public init(v0: Vertex, v1: Vertex, v2: Vertex, z: Float) {
-        self.v0 = v0
-        self.v1 = v1
-        self.v2 = v2
-        self.z = z
-    }
-}
-
 public class AlloyRenderer {
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -51,15 +28,16 @@ public class AlloyRenderer {
         }
     }
     
-    public func render(drawable: CAMetalDrawable, commands: [DrawTriangleCommand]) {
+    // 🔥 极致解耦：引擎只认 [Float]，完全不知道 Swift 结构体的存在
+    public func render(drawable: CAMetalDrawable, rawCommands: [Float]) {
         let texture = drawable.texture
-        guard !commands.isEmpty else { return }
+        guard !rawCommands.isEmpty else { return }
         
-        let commandBuffer = device.makeBuffer(bytes: commands,
-                                              length: MemoryLayout<DrawTriangleCommand>.stride * commands.count,
+        let commandBuffer = device.makeBuffer(bytes: rawCommands,
+                                              length: rawCommands.count * MemoryLayout<Float>.size,
                                               options: .storageModeShared)
         
-        var commandCount = UInt32(commands.count)
+        let commandCount = UInt32(rawCommands.count / 19) // 每个指令 19 个 float
         
         guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
               let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
@@ -69,7 +47,6 @@ public class AlloyRenderer {
         encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
         encoder.setTexture(texture, index: 0)
         
-        // 🔥 核心改动：显式指定 16x16 的 Tile（多点协作小组）
         let threadsPerThreadgroup = MTLSize(width: 16, height: 16, depth: 1)
         let threadsPerGrid = MTLSize(width: texture.width, height: texture.height, depth: 1)
         
