@@ -100,6 +100,10 @@ struct MetalView: UIViewRepresentable {
             let gal = AlloyGAL()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
             
+            // 🔥 调用新增的 GAL 接口
+            gal.setViewport(width: Int(width), height: Int(height))
+            gal.bindTexture(textureID: 0)
+            
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
             pso.cullMode = 1
@@ -121,7 +125,6 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                // 🔥 修复：传入真实的 z0, z1, z2
                 gal.drawTriangle(
                     p0: p0, p1: p1, p2: p2,
                     color: color,
