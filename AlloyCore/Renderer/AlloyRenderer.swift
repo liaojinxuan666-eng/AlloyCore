@@ -34,7 +34,7 @@ public class AlloyRenderer {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else { return nil }
         self.device = device
-        self.commandQueue接近 = commandQueue
+        self.commandQueue = commandQueue
         
         let bundle = Bundle(for: AlloyRenderer.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
