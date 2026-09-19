@@ -15,7 +15,6 @@ struct MetalView: UIViewRepresentable {
         let renderer = AlloyRenderer()
         context.coordinator.renderer = renderer
         
-        // 初始化纹理
         if let device = view.device {
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
@@ -58,7 +57,6 @@ struct MetalView: UIViewRepresentable {
                 [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
             ]
             
-            // 🔥 修复：全部改成白色（1,1,1,1），只显示纹理原色
             let colors: [SIMD4<Float>] = [
                 SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
                 SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
@@ -90,7 +88,7 @@ struct MetalView: UIViewRepresentable {
                 let z = max(v.z + 4.0, 0.1)
                 let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
-                return (SIMD2<Float>(x, y), 1.0 / z)
+                return (SIMD2<Float>(x, y), 1.0 / z) // 返回 1/z
             }
             
             var rawData: [Float] = []
@@ -109,9 +107,7 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                let avgZ1 = (z0 + z1 + z2) / 3.0
-                let avgZ2 = (z0 + z2 + z3) / 3.0
-                
+                // 🔥 不再计算 avgZ，直接将 z0, z1, z2 塞进数组
                 // 三角形 1 (p0, p1, p2)
                 rawData.append(contentsOf: [
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
@@ -119,7 +115,7 @@ struct MetalView: UIViewRepresentable {
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y,
-                    avgZ1
+                    z0, z1, z2
                 ])
                 
                 // 三角形 2 (p0, p2, p3)
@@ -129,7 +125,7 @@ struct MetalView: UIViewRepresentable {
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     uvs[0].x, uvs[0].y, uvs[2].x, uvs[2].y, uvs[3].x, uvs[3].y,
-                    avgZ2
+                    z0, z2, z3
                 ])
             }
             
