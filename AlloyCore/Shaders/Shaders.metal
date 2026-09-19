@@ -4,6 +4,9 @@ using namespace metal;
 // 每个绘制指令包含 1 个 opcode + 36 个数据 = 37 个 uint
 constant int STRIDE = 37;
 
+// 共享内存最多缓存的三角形数量
+constant int MAX_TILE_TRIANGLES = 64;
+
 kernel void process_commands(
     device const uint* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
@@ -11,6 +14,7 @@ kernel void process_commands(
     texture2d<float> texture [[texture(1)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]],
+    uint2 localId [[thread_position_in_threadgroup]],
     uint2 tileSize [[threads_per_threadgroup]]
 ) {
     constexpr sampler textureSampler(mag_filter::linear, min_filter::linear);
@@ -23,81 +27,104 @@ kernel void process_commands(
     float closestInvZ = -1e9;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    uint i = 0;
-    while (i < commandCount) {
-        uint opcode = rawCommands[i];
-        
-        if (opcode == 0x02) {
-            finalColor = float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), 1.0);
-            i += 4;
-        }
-        else if (opcode == 0x01) {
-            uint offset = i + 1;
-            
-            float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
-            float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
-            float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
-            
-            float4 c0 = float4(as_type<float>(rawCommands[offset + 6]), as_type<float>(rawCommands[offset + 7]), as_type<float>(rawCommands[offset + 8]), as_type<float>(rawCommands[offset + 9]));
-            float4 c1 = float4(as_type<float>(rawCommands[offset + 10]), as_type<float>(rawCommands[offset + 11]), as_type<float>(rawCommands[offset + 12]), as_type<float>(rawCommands[offset + 13]));
-            float4 c2 = float4(as_type<float>(rawCommands[offset + 14]), as_type<float>(rawCommands[offset + 15]), as_type<float>(rawCommands[offset + 16]), as_type<float>(rawCommands[offset + 17]));
-            
-            float2 uv0 = float2(as_type<float>(rawCommands[offset + 18]), as_type<float>(rawCommands[offset + 19]));
-            float2 uv1 = float2(as_type<float>(rawCommands[offset + 20]), as_type<float>(rawCommands[offset + 21]));
-            float2 uv2 = float2(as_type<float>(rawCommands[offset + 22]), as_type<float>(rawCommands[offset + 23]));
-            
-            float invZ0 = as_type<float>(rawCommands[offset + 24]);
-            float invZ1 = as_type<float>(rawCommands[offset + 25]);
-            float invZ2 = as_type<float>(rawCommands[offset + 26]);
-            
-            float3 n0 = float3(as_type<float>(rawCommands[offset + 27]), as_type<float>(rawCommands[offset + 28]), as_type<float>(rawCommands[offset + 29]));
-            float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
-            float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
-            
-            float minX = min(min(p0.x, p1.x), p2.x);
-            float maxX = max(max(p0.x, p1.x), p2.x);
-            float minY = min(min(p0.y, p1.y), p2.y);
-            float maxY = max(max(p0.y, p1.y), p2.y);
-            
-            if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
-                maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
+    // 🔥 1. 声明线程组共享内存，用于缓存筛选后的三角形
+    threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
+    threadgroup uint tileTriangleCount;
+    
+    // 初始化计数器
+    if (localId.x == 0 && localId.y == 0) {
+        tileTriangleCount = 0;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // 🔥 2. 多点协作：组长负责筛选并记录与当前 Tile 相交的三角形
+    if (localId.x == 0 && localId.y == 0) {
+        uint i = 0;
+        while (i < commandCount && tileTriangleCount < MAX_TILE_TRIANGLES) {
+            uint opcode = rawCommands[i];
+            if (opcode == 0x02) {
+                i += 4;
+            } else if (opcode == 0x01) {
+                uint offset = i + 1;
+                float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
+                float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
+                float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
                 
-                float2 v0 = p1 - p0;
-                float2 v1 = p2 - p0;
-                float2 v2 = pixel_pos - p0;
+                float minX = min(min(p0.x, p1.x), p2.x);
+                float maxX = max(max(p0.x, p1.x), p2.x);
+                float minY = min(min(p0.y, p1.y), p2.y);
+                float maxY = max(max(p0.y, p1.y), p2.y);
                 
-                float dot00 = dot(v0, v0);
-                float dot01 = dot(v0, v1);
-                float dot02 = dot(v0, v2);
-                float dot11 = dot(v1, v1);
-                float dot12 = dot(v1, v2);
-                
-                float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-                float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-                float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-                float w = 1.0 - u - v;
-                
-                if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-                    float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
-                    
-                    if (invZInterp > closestInvZ) {
-                        closestInvZ = invZInterp;
-                        
-                        float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
-                        float4 texColor = texture.sample(textureSampler, uvInterp);
-                        float4 vertexColor = w * c0 + u * c1 + v * c2;
-                        
-                        float3 normal = normalize(w * n0 + u * n1 + v * n2);
-                        float intensity = max(dot(normal, lightDir), 0.2);
-                        
-                        finalColor = vertexColor * texColor * intensity;
-                    }
+                // 包围盒剔除：如果三角形和当前 Tile 相交，记录下来
+                if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
+                    maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
+                    tileTriangleIndices[tileTriangleCount] = i;
+                    tileTriangleCount++;
                 }
+                i += STRIDE;
+            } else {
+                break;
             }
-            i += STRIDE;
         }
-        else {
-            break;
+    }
+    // 等待组长完成筛选
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // 🔥 3. 组内所有线程遍历共享内存里筛选好的三角形，计算像素颜色
+    for (uint t = 0; t < tileTriangleCount; t++) {
+        uint offset = tileTriangleIndices[t] + 1;
+        
+        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
+        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
+        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
+        
+        float4 c0 = float4(as_type<float>(rawCommands[offset + 6]), as_type<float>(rawCommands[offset + 7]), as_type<float>(rawCommands[offset + 8]), as_type<float>(rawCommands[offset + 9]));
+        float4 c1 = float4(as_type<float>(rawCommands[offset + 10]), as_type<float>(rawCommands[offset + 11]), as_type<float>(rawCommands[offset + 12]), as_type<float>(rawCommands[offset + 13]));
+        float4 c2 = float4(as_type<float>(rawCommands[offset + 14]), as_type<float>(rawCommands[offset + 15]), as_type<float>(rawCommands[offset + 16]), as_type<float>(rawCommands[offset + 17]));
+        
+        float2 uv0 = float2(as_type<float>(rawCommands[offset + 18]), as_type<float>(rawCommands[offset + 19]));
+        float2 uv1 = float2(as_type<float>(rawCommands[offset + 20]), as_type<float>(rawCommands[offset + 21]));
+        float2 uv2 = float2(as_type<float>(rawCommands[offset + 22]), as_type<float>(rawCommands[offset + 23]));
+        
+        float invZ0 = as_type<float>(rawCommands[offset + 24]);
+        float invZ1 = as_type<float>(rawCommands[offset + 25]);
+        float invZ2 = as_type<float>(rawCommands[offset + 26]);
+        
+        float3 n0 = float3(as_type<float>(rawCommands[offset + 27]), as_type<float>(rawCommands[offset + 28]), as_type<float>(rawCommands[offset + 29]));
+        float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
+        float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
+        
+        float2 v0 = p1 - p0;
+        float2 v1 = p2 - p0;
+        float2 v2 = pixel_pos - p0;
+        
+        float dot00 = dot(v0, v0);
+        float dot01 = dot(v0, v1);
+        float dot02 = dot(v0, v2);
+        float dot11 = dot(v1, v1);
+        float dot12 = dot(v1, v2);
+        
+        float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+        float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+        float w = 1.0 - u - v;
+        
+        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
+            float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
+            
+            // Early-Z
+            if (invZInterp > closestInvZ) {
+                closestInvZ = invZInterp;
+                
+                float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
+                float4 texColor = texture.sample(textureSampler, uvInterp);
+                float4 vertexColor = w * c0 + u * c1 + v * c2;
+                
+                float3 normal = normalize(w * n0 + u * n1 + v * n2);
+                float intensity = max(dot(normal, lightDir), 0.2);
+                
+                finalColor = vertexColor * texColor * intensity;
+            }
         }
     }
     
