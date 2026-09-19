@@ -15,7 +15,7 @@ struct MetalView: UIViewRepresentable {
         let renderer = AlloyRenderer()
         context.coordinator.renderer = renderer
         
-        // 🔥 初始化纹理
+        // 初始化纹理
         if let device = view.device {
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
@@ -32,7 +32,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var texture: MTLTexture? // 🔥 保存纹理
+        var texture: MTLTexture?
         var time: Float = 0.0
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -58,20 +58,20 @@ struct MetalView: UIViewRepresentable {
                 [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
             ]
             
+            // 🔥 修复：全部改成白色（1,1,1,1），只显示纹理原色
             let colors: [SIMD4<Float>] = [
-                SIMD4<Float>(1, 0, 0, 1), SIMD4<Float>(0, 1, 0, 1),
-                SIMD4<Float>(0, 0, 1, 1), SIMD4<Float>(1, 1, 0, 1),
-                SIMD4<Float>(1, 0, 1, 1), SIMD4<Float>(0, 1, 1, 1)
+                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
+                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
+                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1)
             ]
             
-            // 🔥 每个面的 UV 坐标 (0,0 到 1,1)
             let faceUVs: [[SIMD2<Float>]] = [
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)], // 对应 [0,1,2,3]
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)], // 对应 [1,5,6,2]
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)], // 对应 [5,4,7,6]
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)], // 对应 [4,0,3,7]
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)], // 对应 [3,2,6,7]
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)]  // 对应 [4,5,1,0]
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
+                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)]
             ]
             
             let ax = time * 0.6
@@ -112,28 +112,27 @@ struct MetalView: UIViewRepresentable {
                 let avgZ1 = (z0 + z1 + z2) / 3.0
                 let avgZ2 = (z0 + z2 + z3) / 3.0
                 
-                // 三角形 1 (p0, p1, p2) -> uv0, uv1, uv2
+                // 三角形 1 (p0, p1, p2)
                 rawData.append(contentsOf: [
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
-                    uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y, // 6 个 UV 坐标
+                    uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y,
                     avgZ1
                 ])
                 
-                // 三角形 2 (p0, p2, p3) -> uv0, uv2, uv3
+                // 三角形 2 (p0, p2, p3)
                 rawData.append(contentsOf: [
                     p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
-                    uvs[0].x, uvs[0].y, uvs[2].x, uvs[2].y, uvs[3].x, uvs[3].y, // 6 个 UV 坐标
+                    uvs[0].x, uvs[0].y, uvs[2].x, uvs[2].y, uvs[3].x, uvs[3].y,
                     avgZ2
                 ])
             }
             
-            // 提交给引擎，带上纹理！
             renderer.render(drawable: drawable, texture: texture, rawCommands: rawData)
         }
     }
