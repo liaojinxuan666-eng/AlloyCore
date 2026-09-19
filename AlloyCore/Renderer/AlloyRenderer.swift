@@ -7,11 +7,9 @@ public class AlloyRenderer {
     let commandQueue: MTLCommandQueue
     var pipelineState: MTLComputePipelineState!
     
-    // 公开给外界访问的低分辨率纹理（超分用，暂时关闭）
-    public var lowResTexture: MTLTexture?
-    
-    // 🔥 恢复默认 1.0（直接渲染到屏幕），暂时关闭超分
-    public var renderScale: Float = 1.0
+    // 🔥 改为高分辨率纹理（SSAA 用）
+    public var highResTexture: MTLTexture?
+    public var renderScale: Float = 2.0 // 2倍分辨率渲染！
     
     let tileSize: Int = 16
     
@@ -36,7 +34,7 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 接收 drawable 和 texture，根据 renderScale 决定渲染目标
+    // 🔥 直接渲染到高分辨率纹理
     public func render(drawable: CAMetalDrawable, texture: MTLTexture, rawCommands: [UInt32]) -> MTLCommandBuffer? {
         let drawableTexture = drawable.texture
         guard !rawCommands.isEmpty else { return nil }
@@ -44,20 +42,17 @@ public class AlloyRenderer {
         let fullWidth = drawableTexture.width
         let fullHeight = drawableTexture.height
         
-        // 🔥 根据 renderScale 决定输出纹理
-        let outputTexture: MTLTexture
-        if renderScale < 1.0 {
-            let lowWidth = Int(Float(fullWidth) * renderScale)
-            let lowHeight = Int(Float(fullHeight) * renderScale)
-            if lowResTexture == nil || lowResTexture!.width != lowWidth || lowResTexture!.height != lowHeight {
-                let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: lowWidth, height: lowHeight, mipmapped: false)
-                desc.usage = [.shaderRead, .shaderWrite]
-                lowResTexture = device.makeTexture(descriptor: desc)
-            }
-            outputTexture = lowResTexture!
-        } else {
-            outputTexture = drawableTexture
+        // SSAA: 渲染到 2倍尺寸纹理
+        let ssaaWidth = Int(Float(fullWidth) * renderScale)
+        let ssaaHeight = Int(Float(fullHeight) * renderScale)
+        
+        if highResTexture == nil || highResTexture!.width != ssaaWidth || highResTexture!.height != ssaaHeight {
+            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: ssaaWidth, height: ssaaHeight, mipmapped: false)
+            desc.usage = [.shaderRead, .shaderWrite]
+            highResTexture = device.makeTexture(descriptor: desc)
         }
+        
+        guard let ssaaTex = highResTexture else { return nil }
         
         let commandBuffer = device.makeBuffer(bytes: rawCommands,
                                               length: rawCommands.count * MemoryLayout<UInt32>.size,
@@ -72,11 +67,11 @@ public class AlloyRenderer {
         encoder.setBuffer(commandBuffer, offset: 0, index: 0)
         encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
         
-        encoder.setTexture(outputTexture, index: 0)
+        encoder.setTexture(ssaaTex, index: 0) // 写入高分辨率纹理
         encoder.setTexture(texture, index: 1)
         
         let threadsPerThreadgroup = MTLSize(width: tileSize, height: tileSize, depth: 1)
-        let threadsPerGrid = MTLSize(width: outputTexture.width, height: outputTexture.height, depth: 1)
+        let threadsPerGrid = MTLSize(width: ssaaWidth, height: ssaaHeight, depth: 1)
         encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
         
