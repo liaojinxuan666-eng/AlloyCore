@@ -1,17 +1,21 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// 每个指令包含 19 个 float，固定步长
-constant int STRIDE = 19;
+// 🔥 每个指令现在包含 25 个 float
+constant int STRIDE = 25;
 
 kernel void process_commands(
     device const float* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
     texture2d<float, access::write> output [[texture(0)]],
+    texture2d<float> texture [[texture(1)]], // 🔥 接收纹理
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]],
     uint2 tileSize [[threads_per_threadgroup]]
 ) {
+    // 纹理采样器
+    constexpr sampler textureSampler(mag_filter::linear, min_filter::linear);
+    
     uint2 tileMin = tileOrigin * tileSize;
     uint2 tileMax = tileMin + tileSize;
     
@@ -22,20 +26,25 @@ kernel void process_commands(
     for (uint i = 0; i < commandCount; i++) {
         uint offset = i * STRIDE;
         
-        // 解析位置数据 (float2)
+        // 解析位置
         float2 p0 = float2(rawCommands[offset + 0], rawCommands[offset + 1]);
         float2 p1 = float2(rawCommands[offset + 2], rawCommands[offset + 3]);
         float2 p2 = float2(rawCommands[offset + 4], rawCommands[offset + 5]);
         
-        // 解析颜色数据 (float4)
+        // 解析颜色
         float4 c0 = float4(rawCommands[offset + 6], rawCommands[offset + 7], rawCommands[offset + 8], rawCommands[offset + 9]);
         float4 c1 = float4(rawCommands[offset + 10], rawCommands[offset + 11], rawCommands[offset + 12], rawCommands[offset + 13]);
         float4 c2 = float4(rawCommands[offset + 14], rawCommands[offset + 15], rawCommands[offset + 16], rawCommands[offset + 17]);
         
-        // 解析深度数据 (float)
-        float z = rawCommands[offset + 18];
+        // 🔥 解析 UV
+        float2 uv0 = float2(rawCommands[offset + 18], rawCommands[offset + 19]);
+        float2 uv1 = float2(rawCommands[offset + 20], rawCommands[offset + 21]);
+        float2 uv2 = float2(rawCommands[offset + 22], rawCommands[offset + 23]);
         
-        // 简单剔除
+        // 解析深度
+        float z = rawCommands[offset + 24];
+        
+        // 剔除
         float minX = min(min(p0.x, p1.x), p2.x);
         float maxX = max(max(p0.x, p1.x), p2.x);
         float minY = min(min(p0.y, p1.y), p2.y);
@@ -64,7 +73,14 @@ kernel void process_commands(
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             if (z > closestZ) {
                 closestZ = z;
-                finalColor = w * c0 + u * c1 + v * c2;
+                
+                // 🔥 插值 UV 并采样纹理
+                float2 uv = w * uv0 + u * uv1 + v * uv2;
+                float4 texColor = texture.sample(textureSampler, uv);
+                
+                // 将顶点颜色和纹理颜色相乘
+                float4 vertexColor = w * c0 + u * c1 + v * c2;
+                finalColor = vertexColor * texColor;
             }
         }
     }
