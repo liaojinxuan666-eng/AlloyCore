@@ -37,7 +37,7 @@ public class AlloyRenderer {
                                               length: rawCommands.count * MemoryLayout<Float>.size,
                                               options: .storageModeShared)
         
-        let commandCount = UInt32(rawCommands.count / 19) // 每个指令 19 个 float
+        var commandCount = UInt32(rawCommands.count / 19) // 每个指令 19 个 float
         
         guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
               let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
