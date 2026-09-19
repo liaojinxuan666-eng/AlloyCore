@@ -36,8 +36,8 @@ public class AlloyRenderer {
                                               length: rawCommands.count * MemoryLayout<Float>.size,
                                               options: .storageModeShared)
         
-        // 🔥 步长从 25 变成 27
-        var commandCount = UInt32(rawCommands.count / 27)
+        // 🔥 步长从 27 变成 36 (6 pos + 12 color + 6 uv + 3 z + 9 normal)
+        var commandCount = UInt32(rawCommands.count / 36)
         
         guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
               let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
