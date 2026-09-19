@@ -15,12 +15,8 @@ struct MetalView: UIViewRepresentable {
         let renderer = AlloyRenderer()
         context.coordinator.renderer = renderer
         
-        // 🔥 初始化独立的超分模块
         if let device = view.device {
             context.coordinator.sr = AlloySR(device: device)
-        }
-        
-        if let device = view.device {
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
         
@@ -36,7 +32,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var sr: AlloySR? // 🔥 持有超分模块
+        var sr: AlloySR?
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -48,8 +44,14 @@ struct MetalView: UIViewRepresentable {
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
-            let width = Float(drawable.texture.width)
-            let height = Float(drawable.texture.height)
+            let fullWidth = Float(drawable.texture.width)
+            let fullHeight = Float(drawable.texture.height)
+            
+            // 🔥 核心修复：投影计算必须基于低分辨率画布！
+            let renderScale: Float = 0.5
+            let width = fullWidth * renderScale
+            let height = fullHeight * renderScale
+            
             time += 0.02
             
             let vertices3D: [SIMD3<Float>] = [
@@ -99,14 +101,13 @@ struct MetalView: UIViewRepresentable {
             func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
                 let fov: Float = 800.0
                 let z = max(v.z + 4.0, 0.1)
-                let x = v.x * fov / z + width / 2
+                let x = v.x * fov / z + width / 2 // 这里现在用的是低分辨率宽度
                 let y = -v.y * fov / z + height / 2
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
             var rawData: [UInt32] = []
             
-            // 指令 0x02：设置背景色
             rawData.append(0x02)
             rawData.append(Float(0.1).bitPattern)
             rawData.append(Float(0.1).bitPattern)
@@ -157,14 +158,11 @@ struct MetalView: UIViewRepresentable {
                 ])
             }
             
-            // 🔥 1. 让引擎渲染低分辨率纹理，返回 CommandBuffer
             if let cmdBuffer = renderer.render(texture: drawable.texture, rawCommands: rawData),
                let lowRes = renderer.lowResTexture {
                 
-                // 🔥 2. 将 CommandBuffer 和低分辨率纹理交给超分模块放大
                 sr.upscale(lowRes: lowRes, highRes: drawable.texture, commandBuffer: cmdBuffer)
                 
-                // 🔥 3. 提交呈现
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
