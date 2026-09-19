@@ -1,5 +1,6 @@
 import Metal
 import simd
+import QuartzCore // 需要引入 CAMetalDrawable
 
 // 与 Metal 内存对齐的结构体
 public struct Vertex {
@@ -23,7 +24,7 @@ public class TriangleRenderer {
         self.device = device
         self.commandQueue = commandQueue
         
-        // 🔥 核心修复：从 AlloyCore 这个 Framework 的 Bundle 里加载 Metal 库！
+        // 从 AlloyCore 这个 Framework 的 Bundle 里加载 Metal 库
         let bundle = Bundle(for: TriangleRenderer.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
               let kernel = library.makeFunction(name: "rasterize_triangle") else {
@@ -39,8 +40,11 @@ public class TriangleRenderer {
         }
     }
     
-    public func render(to texture: MTLTexture) {
-        // 2. 定义三角形顶点
+    // 注意：这里参数改成了 CAMetalDrawable
+    public func render(drawable: CAMetalDrawable) {
+        let texture = drawable.texture
+        
+        // 1. 定义三角形顶点 (假设画布是 1024x1024)
         let vertices = [
             Vertex(position: SIMD2<Float>(512, 100), color: SIMD4<Float>(1, 0, 0, 1)), // 红
             Vertex(position: SIMD2<Float>(100, 900), color: SIMD4<Float>(0, 1, 0, 1)), // 绿
@@ -51,7 +55,7 @@ public class TriangleRenderer {
                                              length: MemoryLayout<Vertex>.stride * vertices.count,
                                              options: .storageModeShared)
         
-        // 3. 创建 Command Buffer 和 Compute Encoder
+        // 2. 创建 Command Buffer 和 Compute Encoder
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         
@@ -59,7 +63,7 @@ public class TriangleRenderer {
         encoder.setBuffer(vertexBuffer, offset: 0, index: 0)
         encoder.setTexture(texture, index: 0)
         
-        // 4. 多点协作调度核心
+        // 3. 多点协作调度核心
         let w = pipelineState.threadExecutionWidth
         let h = pipelineState.maxTotalThreadsPerThreadgroup / w
         let threadsPerThreadgroup = MTLSize(width: w, height: h, depth: 1)
@@ -68,7 +72,8 @@ public class TriangleRenderer {
         encoder.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
         
+        // 🔥 核心修复：提交并呈现！
+        commandBuffer.present(drawable)
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
     }
 }
