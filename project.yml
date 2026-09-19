@@ -10,6 +10,9 @@ targets:
     type: framework
     platform: iOS
     sources: [AlloyCore]
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      CODE_SIGNING_ALLOWED: NO
 
   TestApp:
     type: application
@@ -17,3 +20,6 @@ targets:
     sources: [TestApp]
     dependencies:
       - target: AlloyCore
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      CODE_SIGNING_ALLOWED: NO
