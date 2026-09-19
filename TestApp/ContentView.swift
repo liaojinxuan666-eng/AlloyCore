@@ -27,7 +27,7 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var time: Float = 0.0 // 用于动画
+        var time: Float = 0.0
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
@@ -35,44 +35,85 @@ struct MetalView: UIViewRepresentable {
             guard let renderer = renderer,
                   let drawable = view.currentDrawable else { return }
             
-            let texture = drawable.texture
-            let w = Float(texture.width)
-            let h = Float(texture.height)
-            let centerX = w / 2
-            let centerY = h / 2
-            
-            // 时间步进，让三角形转起来
+            let width = Float(drawable.texture.width)
+            let height = Float(drawable.texture.height)
             time += 0.02
             
-            // 定义基础三角形（未旋转）
-            let baseVertices = [
-                SIMD2<Float>(0, -200), // 顶部
-                SIMD2<Float>(-173, 100), // 左下
-                SIMD2<Float>(173, 100)   // 右下
+            // === 3D 立方体数据 ===
+            let vertices3D: [SIMD3<Float>] = [
+                SIMD3<Float>(-1, -1, -1), SIMD3<Float>( 1, -1, -1),
+                SIMD3<Float>( 1,  1, -1), SIMD3<Float>(-1,  1, -1),
+                SIMD3<Float>(-1, -1,  1), SIMD3<Float>( 1, -1,  1),
+                SIMD3<Float>( 1,  1,  1), SIMD3<Float>(-1,  1,  1)
             ]
             
-            // 简单的 2D 旋转矩阵
-            let cosT = cos(time)
-            let sinT = sin(time)
-            
-            // 在 TestApp 层计算旋转后的顶点，然后丢给引擎！
-            let transformedVertices = [
-                Vertex(position: SIMD2<Float>(
-                    centerX + baseVertices[0].x * cosT - baseVertices[0].y * sinT,
-                    centerY + baseVertices[0].x * sinT + baseVertices[0].y * cosT),
-                       color: SIMD4<Float>(1, 0, 0, 1)),
-                Vertex(position: SIMD2<Float>(
-                    centerX + baseVertices[1].x * cosT - baseVertices[1].y * sinT,
-                    centerY + baseVertices[1].x * sinT + baseVertices[1].y * cosT),
-                       color: SIMD4<Float>(0, 1, 0, 1)),
-                Vertex(position: SIMD2<Float>(
-                    centerX + baseVertices[2].x * cosT - baseVertices[2].y * sinT,
-                    centerY + baseVertices[2].x * sinT + baseVertices[2].y * cosT),
-                       color: SIMD4<Float>(0, 0, 1, 1))
+            let faceIndices: [[Int]] = [
+                [0, 1, 2, 3], [1, 5, 6, 2], [5, 4, 7, 6],
+                [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
             ]
             
-            // 把计算好的顶点丢给引擎！
-            renderer.render(drawable: drawable, vertices: transformedVertices)
+            let colors: [SIMD4<Float>] = [
+                SIMD4<Float>(1, 0, 0, 1), SIMD4<Float>(0, 1, 0, 1),
+                SIMD4<Float>(0, 0, 1, 1), SIMD4<Float>(1, 1, 0, 1),
+                SIMD4<Float>(1, 0, 1, 1), SIMD4<Float>(0, 1, 1, 1)
+            ]
+            
+            // === 旋转与投影数学 ===
+            let ax = time * 0.6
+            let ay = time * 0.8
+            
+            func rotate(_ v: SIMD3<Float>) -> SIMD3<Float> {
+                let x1 = v.x * cos(ay) - v.z * sin(ay)
+                let z1 = v.x * sin(ay) + v.z * cos(ay)
+                let y2 = v.y * cos(ax) - z1 * sin(ax)
+                let z2 = v.y * sin(ax) + z1 * cos(ax)
+                return SIMD3<Float>(x1, y2, z2)
+            }
+            
+            func project(_ v: SIMD3<Float>) -> SIMD2<Float> {
+                let fov: Float = 800.0
+                let z = max(v.z + 4.0, 0.1) // 平移 Z 轴防止除以零
+                let x = v.x * fov / z + width / 2
+                let y = -v.y * fov / z + height / 2
+                return SIMD2<Float>(x, y)
+            }
+            
+            // === 组装三角形并按深度排序（画家算法） ===
+            var triangleList: [(vertices: [SIMD3<Float>], color: SIMD4<Float>, avgZ: Float)] = []
+            
+            for (faceIdx, indices) in faceIndices.enumerated() {
+                let v0 = rotate(vertices3D[indices[0]])
+                let v1 = rotate(vertices3D[indices[1]])
+                let v2 = rotate(vertices3D[indices[2]])
+                let v3 = rotate(vertices3D[indices[3]])
+                
+                // 每个面拆成两个三角形
+                let z1 = (v0.z + v1.z + v2.z) / 3.0
+                triangleList.append((vertices: [v0, v1, v2], color: colors[faceIdx], avgZ: z1))
+                
+                let z2 = (v0.z + v2.z + v3.z) / 3.0
+                triangleList.append((vertices: [v0, v2, v3], color: colors[faceIdx], avgZ: z2))
+            }
+            
+            // 按深度从远到近排序
+            triangleList.sort { $0.avgZ < $1.avgZ }
+            
+            // 投影到 2D 并打包给引擎
+            var finalTriangles: [[Vertex]] = []
+            for tri in triangleList {
+                let p0 = project(tri.vertices[0])
+                let p1 = project(tri.vertices[1])
+                let p2 = project(tri.vertices[2])
+                
+                finalTriangles.append([
+                    Vertex(position: p0, color: tri.color),
+                    Vertex(position: p1, color: tri.color),
+                    Vertex(position: p2, color: tri.color)
+                ])
+            }
+            
+            // 丢给 AlloyCore 引擎！
+            renderer.render(drawable: drawable, triangles: finalTriangles)
         }
     }
 }
