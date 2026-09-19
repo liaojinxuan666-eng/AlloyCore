@@ -16,7 +16,6 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
-            context.coordinator.ssaa = AlloySSAA(device: device) // 🔥 初始化 SSAA 模块
             context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
         }
         
@@ -32,7 +31,6 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var ssaa: AlloySSAA?
         var texture: MTLTexture?
         var time: Float = 0.0
         
@@ -40,14 +38,11 @@ struct MetalView: UIViewRepresentable {
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
-                  let ssaa = ssaa,
                   let texture = texture,
                   let drawable = view.currentDrawable else { return }
             
-            // 🔥 注意：这里因为渲染的是 2倍分辨率，投影计算也要乘以 2
-            let scale = renderer.renderScale
-            let width = Float(drawable.texture.width) * scale
-            let height = Float(drawable.texture.height) * scale
+            let width = Float(drawable.texture.width)
+            let height = Float(drawable.texture.height)
             time += 0.02
             
             let vertices3D: [SIMD3<Float>] = [
@@ -95,25 +90,21 @@ struct MetalView: UIViewRepresentable {
             }
             
             func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
-                let fov: Float = 800.0 * scale // FOV 也要乘 2
+                let fov: Float = 800.0
                 let z = max(v.z + 4.0, 0.1)
                 let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            var rawData: [UInt32] = []
+            // 🔥 1. 初始化 GAL
+            let gal = AlloyGAL()
+            gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
             
-            rawData.append(0x02)
-            rawData.append(Float(0.1).bitPattern)
-            rawData.append(Float(0.1).bitPattern)
-            rawData.append(Float(0.15).bitPattern)
-            
-            func appendFloats(_ floats: [Float]) {
-                for f in floats {
-                    rawData.append(f.bitPattern)
-                }
-            }
+            var pso = AlloyPipelineDescriptor()
+            pso.depthTestEnabled = true
+            pso.cullMode = 1 // 开启背面剔除
+            gal.bindPipeline(pso)
             
             for (faceIdx, indices) in faceIndices.enumerated() {
                 let v0 = rotate(vertices3D[indices[0]])
@@ -131,37 +122,24 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                rawData.append(0x01)
-                appendFloats([
-                    p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
-                    color.x, color.y, color.z, color.w,
-                    color.x, color.y, color.z, color.w,
-                    color.x, color.y, color.z, color.w,
-                    uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y,
-                    z0, z1, z2,
-                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
-                ])
+                // 🔥 2. 使用 GAL 接口提交三角形
+                gal.drawTriangle(
+                    p0: p0, p1: p1, p2: p2,
+                    color: color, z: (z0 + z1 + z2) / 3.0,
+                    uv0: uvs[0], uv1: uvs[1], uv2: uvs[2],
+                    n0: n, n1: n, n2: n
+                )
                 
-                rawData.append(0x01)
-                appendFloats([
-                    p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
-                    color.x, color.y, color.z, color.w,
-                    color.x, color.y, color.z, color.w,
-                    color.x, color.y, color.z, color.w,
-                    uvs[0].x, uvs[0].y, uvs[2].x, uvs[2].y, uvs[3].x, uvs[3].y,
-                    z0, z2, z3,
-                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
-                ])
+                gal.drawTriangle(
+                    p0: p0, p1: p2, p2: p3,
+                    color: color, z: (z0 + z2 + z3) / 3.0,
+                    uv0: uvs[0], uv1: uvs[2], uv2: uvs[3],
+                    n0: n, n1: n, n2: n
+                )
             }
             
-            // 1. 渲染到 2x 分辨率纹理
-            if let cmdBuffer = renderer.render(drawable: drawable, texture: texture, rawCommands: rawData),
-               let ssaaTex = renderer.highResTexture {
-                
-                // 2. 把 2x 分辨率降采样到屏幕原生分辨率
-                ssaa.downsample(highRes: ssaaTex, lowRes: drawable.texture, commandBuffer: cmdBuffer)
-                
-                // 3. 呈现
+            // 🔥 3. 提交给引擎渲染
+            if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture: texture) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
