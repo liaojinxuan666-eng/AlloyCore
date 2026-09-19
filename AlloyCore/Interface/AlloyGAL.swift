@@ -1,5 +1,6 @@
 import Metal
 import simd
+import QuartzCore // 🔥 核心修复：补充导入 QuartzCore
 
 // 管线状态描述符（模拟 DX/Vulkan 的 PSO）
 public struct AlloyPipelineDescriptor {
