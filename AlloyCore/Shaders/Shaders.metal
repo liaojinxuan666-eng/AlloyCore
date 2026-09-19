@@ -46,13 +46,13 @@ kernel void process_commands(
         while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
             uint opcode = rawCommands[i];
             if (opcode == 0x02) {
-                i += 5; // 🔥 修复：clearColor 包含 1个 opcode + 4个 float
+                i += 5; // 修复：clearColor = 1 opcode + 4 float = 5
             } else if (opcode == 0x03) {
-                i += 5; // bindPipeline 包含 1个 opcode + 4个 uint
+                i += 5; // bindPipeline = 1 opcode + 4 uint = 5
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-                i += STRIDE;
+                i += STRIDE; // STRIDE = 37
             } else {
                 break;
             }
