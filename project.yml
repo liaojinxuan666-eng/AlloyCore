@@ -1,0 +1,18 @@
+name: AlloyCore
+options:
+  bundleIdPrefix: com.alloycore
+  deploymentTarget:
+    iOS: "15.0"
+
+targets:
+  AlloyCore:
+    type: framework
+    platform: iOS
+    sources: [AlloyCore]
+
+  TestApp:
+    type: application
+    platform: iOS
+    sources: [TestApp]
+    dependencies:
+      - target: AlloyCore
