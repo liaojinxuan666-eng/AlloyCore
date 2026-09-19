@@ -1,6 +1,6 @@
 import SwiftUI
 import MetalKit
-import AlloyCore // 导入核心库
+import AlloyCore
 
 struct MetalView: UIViewRepresentable {
     func makeUIView(context: Context) -> MTKView {
@@ -8,6 +8,11 @@ struct MetalView: UIViewRepresentable {
         view.device = MTLCreateSystemDefaultDevice()
         view.colorPixelFormat = .bgra8Unorm
         view.framebufferOnly = false // 我们用 Compute 直接写纹理
+        
+        // 🔥 确保渲染循环开启！
+        view.isPaused = false
+        view.enableSetNeedsDisplay = false
+        view.preferredFramesPerSecond = 60
         
         let renderer = TriangleRenderer()
         context.coordinator.renderer = renderer
@@ -28,12 +33,11 @@ struct MetalView: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func draw(in view: MTKView) {
-            // 修复：drawable 是可选的，texture 不是可选的
             guard let renderer = renderer,
                   let drawable = view.currentDrawable else { return }
             
-            // 直接让我们的虚拟 GPU 写入这块纹理！
-            renderer.render(to: drawable.texture)
+            // 直接传入 drawable，让渲染器自己提交
+            renderer.render(drawable: drawable)
         }
     }
 }
