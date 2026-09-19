@@ -68,17 +68,16 @@ struct MetalView: UIViewRepresentable {
                 return SIMD3<Float>(x1, y2, z2)
             }
             
-            // 投影函数现在返回 2D 坐标和用于深度测试的 Z 值
             func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
                 let fov: Float = 800.0
                 let z = max(v.z + 4.0, 0.1)
                 let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
-                // 将 Z 值取倒数作为深度值，越大越近
                 return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
-            var commands: [DrawTriangleCommand] = []
+            // 🔥 构建纯 float 数组！
+            var rawData: [Float] = []
             
             for (faceIdx, indices) in faceIndices.enumerated() {
                 let v0 = rotate(vertices3D[indices[0]])
@@ -92,25 +91,30 @@ struct MetalView: UIViewRepresentable {
                 let (p3, z3) = project(v3)
                 
                 let color = colors[faceIdx]
+                let avgZ1 = (z0 + z1 + z2) / 3.0
+                let avgZ2 = (z0 + z2 + z3) / 3.0
                 
-                // 构建指令流：每个面拆成两个三角形指令
-                commands.append(DrawTriangleCommand(
-                    v0: Vertex(position: p0, color: color),
-                    v1: Vertex(position: p1, color: color),
-                    v2: Vertex(position: p2, color: color),
-                    z: (z0 + z1 + z2) / 3.0
-                ))
+                // 三角形 1：p0, p1, p2
+                rawData.append(contentsOf: [
+                    p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
+                    color.x, color.y, color.z, color.w,
+                    color.x, color.y, color.z, color.w,
+                    color.x, color.y, color.z, color.w,
+                    avgZ1
+                ])
                 
-                commands.append(DrawTriangleCommand(
-                    v0: Vertex(position: p0, color: color),
-                    v1: Vertex(position: p2, color: color),
-                    v2: Vertex(position: p3, color: color),
-                    z: (z0 + z2 + z3) / 3.0
-                ))
+                // 三角形 2：p0, p2, p3
+                rawData.append(contentsOf: [
+                    p0.x, p0.y, p2.x, p2.y, p3.x, p3.y,
+                    color.x, color.y, color.z, color.w,
+                    color.x, color.y, color.z, color.w,
+                    color.x, color.y, color.z, color.w,
+                    avgZ2
+                ])
             }
             
-            // 提交指令流给引擎！
-            renderer.render(drawable: drawable, commands: commands)
+            // 提交二进制指令流给引擎！
+            renderer.render(drawable: drawable, rawCommands: rawData)
         }
     }
 }
