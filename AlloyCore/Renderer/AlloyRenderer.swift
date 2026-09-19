@@ -28,7 +28,6 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 接收纹理参数
     public func render(drawable: CAMetalDrawable, texture: MTLTexture, rawCommands: [Float]) {
         let drawableTexture = drawable.texture
         guard !rawCommands.isEmpty else { return }
@@ -37,8 +36,8 @@ public class AlloyRenderer {
                                               length: rawCommands.count * MemoryLayout<Float>.size,
                                               options: .storageModeShared)
         
-        // 🔥 步长变为 25
-        var commandCount = UInt32(rawCommands.count / 25)
+        // 🔥 步长从 25 变成 27
+        var commandCount = UInt32(rawCommands.count / 27)
         
         guard let cmdQueueBuffer = commandQueue.makeCommandBuffer(),
               let encoder = cmdQueueBuffer.makeComputeCommandEncoder() else { return }
@@ -47,7 +46,7 @@ public class AlloyRenderer {
         encoder.setBuffer(commandBuffer, offset: 0, index: 0)
         encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
         encoder.setTexture(drawableTexture, index: 0)
-        encoder.setTexture(texture, index: 1) // 绑定源纹理
+        encoder.setTexture(texture, index: 1)
         
         let threadsPerThreadgroup = MTLSize(width: 16, height: 16, depth: 1)
         let threadsPerGrid = MTLSize(width: drawableTexture.width, height: drawableTexture.height, depth: 1)
