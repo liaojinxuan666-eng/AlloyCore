@@ -24,44 +24,46 @@ kernel void process_commands(
     float2 pixel_pos = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    // 🔥 1. 线程组共享内存（新增了 sharedClearColor）
+    // 1. 线程组共享内存
     threadgroup atomic_uint tileTriangleCount;
     threadgroup uint triangleOffsets[MAX_TILE_TRIANGLES];
     threadgroup uint triangleOffsetCount;
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup float tileDepthBuffer[256];
-    threadgroup float4 sharedClearColor; // 🔥 新增：共享背景色
+    threadgroup float4 sharedClearColor;
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
-    // 初始化
+    // 2. 初始化
     if (localId.x == 0 && localId.y == 0) {
         atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
         triangleOffsetCount = 0;
-        sharedClearColor = float4(0.0, 0.0, 0.0, 1.0); // 默认黑色
+        sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
     }
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 2. 预解析指令流，提取三角形偏移量，并设置背景色
+    // 3. 预解析：提取三角形偏移量，读取背景色
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
             uint opcode = rawCommands[i];
             if (opcode == 0x02) {
-                // 🔥 写入共享内存，而不是局部变量
+                // clearColor: 1 opcode + 4 floats = 5 uint
                 sharedClearColor = float4(
                     as_type<float>(rawCommands[i+1]),
                     as_type<float>(rawCommands[i+2]),
                     as_type<float>(rawCommands[i+3]),
                     1.0
                 );
-                i += 5; // 修复：clearColor = 1 opcode + 4 float = 5
+                i += 5;
             } else if (opcode == 0x03) {
-                i += 5; // bindPipeline = 1 opcode + 4 uint = 5
+                // bindPipeline: 1 opcode + 4 uint = 5 uint
+                i += 5;
             } else if (opcode == 0x01) {
+                // drawTriangle: 1 opcode + 36 floats = 37 uint
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-                i += STRIDE; // STRIDE = 37
+                i += STRIDE;
             } else {
                 break;
             }
@@ -69,7 +71,7 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 3. 动态负载均衡筛选三角形
+    // 4. 动态负载均衡筛选三角形
     uint tid = localId.y * TILE_SIZE + localId.x;
     for (uint t = tid; t < triangleOffsetCount; t += TILE_SIZE * TILE_SIZE) {
         uint offset = triangleOffsets[t] + 1;
@@ -96,7 +98,7 @@ kernel void process_commands(
     uint finalTriangleCount = atomic_load_explicit(&tileTriangleCount, memory_order_relaxed);
     if (finalTriangleCount > MAX_TILE_TRIANGLES) finalTriangleCount = MAX_TILE_TRIANGLES;
 
-    // 4. 深度预通道
+    // 5. 深度预通道
     for (uint t = 0; t < finalTriangleCount; t++) {
         uint offset = tileTriangleIndices[t] + 1;
         
@@ -132,8 +134,7 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 5. 着色通道
-    // 🔥 关键修复：从共享内存初始化背景色
+    // 6. 着色通道
     float4 finalColor = sharedClearColor;
     
     for (uint t = 0; t < finalTriangleCount; t++) {
