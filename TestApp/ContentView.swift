@@ -57,6 +57,13 @@ struct MetalView: UIViewRepresentable {
                 [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
             ]
             
+            // 🔥 每个面对应的法线向量
+            let faceNormals: [SIMD3<Float>] = [
+                SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0),
+                SIMD3<Float>(0, 0, 1),  SIMD3<Float>(-1, 0, 0),
+                SIMD3<Float>(0, 1, 0),  SIMD3<Float>(0, -1, 0)
+            ]
+            
             let colors: [SIMD4<Float>] = [
                 SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
                 SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
@@ -88,7 +95,7 @@ struct MetalView: UIViewRepresentable {
                 let z = max(v.z + 4.0, 0.1)
                 let x = v.x * fov / z + width / 2
                 let y = -v.y * fov / z + height / 2
-                return (SIMD2<Float>(x, y), 1.0 / z) // 返回 1/z
+                return (SIMD2<Float>(x, y), 1.0 / z)
             }
             
             var rawData: [Float] = []
@@ -99,6 +106,8 @@ struct MetalView: UIViewRepresentable {
                 let v2 = rotate(vertices3D[indices[2]])
                 let v3 = rotate(vertices3D[indices[3]])
                 
+                let n = rotate(faceNormals[faceIdx]) // 同步旋转法线
+                
                 let (p0, z0) = project(v0)
                 let (p1, z1) = project(v1)
                 let (p2, z2) = project(v2)
@@ -107,7 +116,6 @@ struct MetalView: UIViewRepresentable {
                 let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                // 🔥 不再计算 avgZ，直接将 z0, z1, z2 塞进数组
                 // 三角形 1 (p0, p1, p2)
                 rawData.append(contentsOf: [
                     p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
@@ -115,7 +123,8 @@ struct MetalView: UIViewRepresentable {
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     uvs[0].x, uvs[0].y, uvs[1].x, uvs[1].y, uvs[2].x, uvs[2].y,
-                    z0, z1, z2
+                    z0, z1, z2,
+                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z // 3 个顶点的法线
                 ])
                 
                 // 三角形 2 (p0, p2, p3)
@@ -125,7 +134,8 @@ struct MetalView: UIViewRepresentable {
                     color.x, color.y, color.z, color.w,
                     color.x, color.y, color.z, color.w,
                     uvs[0].x, uvs[0].y, uvs[2].x, uvs[2].y, uvs[3].x, uvs[3].y,
-                    z0, z2, z3
+                    z0, z2, z3,
+                    n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z
                 ])
             }
             
