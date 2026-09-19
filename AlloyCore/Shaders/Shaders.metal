@@ -1,10 +1,10 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// 注意：用 packed_float 确保与 Swift 的 SIMD 内存布局对齐
+// 与 Swift 的 SIMD 完美对齐
 struct Vertex {
-    packed_float2 position; // 屏幕坐标 (x, y)
-    packed_float4 color;    // RGBA 颜色
+    float2 position; // 去掉 packed
+    float4 color;    // 去掉 packed
 };
 
 kernel void rasterize_triangle(
@@ -12,7 +12,6 @@ kernel void rasterize_triangle(
     texture2d<float, access::write> output [[texture(0)]],
     uint2 gid [[thread_position_in_grid]]
 ) {
-    // gid 就是当前线程负责的屏幕像素坐标
     float2 pixel_pos = float2(gid) + 0.5;
     
     float2 p0 = float2(vertices[0].position);
