@@ -48,7 +48,8 @@ struct MetalView: UIViewRepresentable {
             let height = Float(drawable.texture.height)
             time += 0.02
             
-            let vertices3D: [SIMD3<Float>] = [
+            // 立方体模型空间顶点
+            let cubeVertices: [SIMD3<Float>] = [
                 SIMD3<Float>(-1, -1, -1), SIMD3<Float>( 1, -1, -1),
                 SIMD3<Float>( 1,  1, -1), SIMD3<Float>(-1,  1, -1),
                 SIMD3<Float>(-1, -1,  1), SIMD3<Float>( 1, -1,  1),
@@ -64,12 +65,6 @@ struct MetalView: UIViewRepresentable {
                 SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0),
                 SIMD3<Float>(0, 0, 1),  SIMD3<Float>(-1, 0, 0),
                 SIMD3<Float>(0, 1, 0),  SIMD3<Float>(0, -1, 0)
-            ]
-            
-            let colors: [SIMD4<Float>] = [
-                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
-                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1),
-                SIMD4<Float>(1, 1, 1, 1), SIMD4<Float>(1, 1, 1, 1)
             ]
             
             let faceUVs: [[SIMD2<Float>]] = [
@@ -109,42 +104,31 @@ struct MetalView: UIViewRepresentable {
             pso.cullMode = 1
             gal.bindPipeline(pso)
             
+            // 🔥 关键改动：给每个面添加 4 个顶点，然后发 2 个 drawIndexed 指令
             for (faceIdx, indices) in faceIndices.enumerated() {
-                // 决定当前面的纹理 ID
                 let texID: UInt32 = faceIdx < 3 ? 0 : 1
-                
-                let v0 = rotate(vertices3D[indices[0]])
-                let v1 = rotate(vertices3D[indices[1]])
-                let v2 = rotate(vertices3D[indices[2]])
-                let v3 = rotate(vertices3D[indices[3]])
-                
                 let n = rotate(faceNormals[faceIdx])
-                
-                let (p0, z0) = project(v0)
-                let (p1, z1) = project(v1)
-                let (p2, z2) = project(v2)
-                let (p3, z3) = project(v3)
-                
-                let color = colors[faceIdx]
                 let uvs = faceUVs[faceIdx]
                 
-                gal.drawTriangle(
-                    p0: p0, p1: p1, p2: p2,
-                    color: color,
-                    z0: z0, z1: z1, z2: z2,
-                    textureID: texID, // 传入 textureID
-                    uv0: uvs[0], uv1: uvs[1], uv2: uvs[2],
-                    n0: n, n1: n, n2: n
-                )
+                // 添加这个面的 4 个顶点到 VBO
+                var faceVertIndices: [UInt32] = []
+                for k in 0..<4 {
+                    let worldPos = rotate(cubeVertices[indices[k]])
+                    let (screenPos, invZ) = project(worldPos)
+                    
+                    let idx = gal.addVertex(
+                        position: screenPos,
+                        color: SIMD4<Float>(1, 1, 1, 1),
+                        uv: uvs[k],
+                        invZ: invZ,
+                        normal: n
+                    )
+                    faceVertIndices.append(idx)
+                }
                 
-                gal.drawTriangle(
-                    p0: p0, p1: p2, p2: p3,
-                    color: color,
-                    z0: z0, z1: z2, z2: z3,
-                    textureID: texID, // 传入 textureID
-                    uv0: uvs[0], uv1: uvs[2], uv2: uvs[3],
-                    n0: n, n1: n, n2: n
-                )
+                // 发 2 个 drawIndexed 指令（每个面 = 2 个三角形）
+                gal.drawIndexed(v0: faceVertIndices[0], v1: faceVertIndices[1], v2: faceVertIndices[2], textureID: texID)
+                gal.drawIndexed(v0: faceVertIndices[0], v1: faceVertIndices[2], v2: faceVertIndices[3], textureID: texID)
             }
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
