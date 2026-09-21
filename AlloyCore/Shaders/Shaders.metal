@@ -68,7 +68,7 @@ kernel void process_commands(
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ============ 第 1 步：预解析，收集三角形 ============
+    // 1. 预解析
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount) {
@@ -130,7 +130,7 @@ kernel void process_commands(
     uint finalTriCount = atomic_load_explicit(&triCount, memory_order_relaxed);
     if (finalTriCount > MAX_TILE_TRIANGLES) finalTriCount = MAX_TILE_TRIANGLES;
 
-    // ============ 第 2 步：深度预通道 ============
+    // 2. 深度预通道
     for (uint t = 0; t < finalTriCount; t++) {
         TriangleRef ref = triList[t];
         Vertex v0 = loadVertex(vertexData, ref.v0);
@@ -171,7 +171,7 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ============ 第 3 步：着色通道 ============
+    // 3. 着色通道
     float4 finalColor = sharedClearColor;
     
     for (uint t = 0; t < finalTriCount; t++) {
