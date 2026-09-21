@@ -34,14 +34,14 @@ public class AlloyGAL {
         commandBuffer.append(desc.shaderID)
     }
     
-    // 🔥 新增：设置视口（1 opcode + 2 float = 3 uint）
+    // 设置视口
     public func setViewport(width: Int, height: Int) {
         commandBuffer.append(0x04)
         commandBuffer.append(Float(width).bitPattern)
         commandBuffer.append(Float(height).bitPattern)
     }
     
-    // 🔥 新增：绑定纹理（1 opcode + 1 uint = 2 uint）
+    // 绑定纹理
     public func bindTexture(textureID: UInt32) {
         commandBuffer.append(0x05)
         commandBuffer.append(textureID)
@@ -72,7 +72,8 @@ public class AlloyGAL {
         }
     }
     
-    public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture: MTLTexture) -> MTLCommandBuffer? {
-        return renderer.render(drawable: drawable, texture: texture, rawCommands: commandBuffer)
+    // 🔥 修复：submit 接收两个纹理，并正确匹配 AlloyRenderer 的参数名
+    public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture) -> MTLCommandBuffer? {
+        return renderer.render(drawable: drawable, texture0: texture0, texture1: texture1, rawCommands: commandBuffer)
     }
 }
