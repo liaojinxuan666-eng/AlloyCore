@@ -30,8 +30,8 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 直接渲染到屏幕纹理，没有任何中间层！
-    public func render(drawable: CAMetalDrawable, texture: MTLTexture, rawCommands: [UInt32]) -> MTLCommandBuffer? {
+    // 🔥 修改：接收两个纹理
+    public func render(drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture, rawCommands: [UInt32]) -> MTLCommandBuffer? {
         let outputTexture = drawable.texture
         guard !rawCommands.isEmpty else { return nil }
         
@@ -48,7 +48,8 @@ public class AlloyRenderer {
         encoder.setBuffer(commandBuffer, offset: 0, index: 0)
         encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
         encoder.setTexture(outputTexture, index: 0)
-        encoder.setTexture(texture, index: 1)
+        encoder.setTexture(texture0, index: 1) // 纹理 0
+        encoder.setTexture(texture1, index: 2) // 纹理 1
         
         let threadsPerThreadgroup = MTLSize(width: tileSize, height: tileSize, depth: 1)
         let threadsPerGrid = MTLSize(width: outputTexture.width, height: outputTexture.height, depth: 1)
