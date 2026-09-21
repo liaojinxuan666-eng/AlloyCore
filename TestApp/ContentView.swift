@@ -16,7 +16,6 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
-            // 🔥 生成两张纹理
             context.coordinator.texture0 = TextureHelper.createCheckerboardTexture(device: device, isRed: false)
             context.coordinator.texture1 = TextureHelper.createCheckerboardTexture(device: device, isRed: true)
         }
@@ -33,8 +32,8 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var texture0: MTLTexture? // 蓝色棋盘格
-        var texture1: MTLTexture? // 红色棋盘格
+        var texture0: MTLTexture?
+        var texture1: MTLTexture?
         var time: Float = 0.0
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -111,12 +110,10 @@ struct MetalView: UIViewRepresentable {
             gal.bindPipeline(pso)
             
             for (faceIdx, indices) in faceIndices.enumerated() {
-                // 🔥 核心：根据不同的面，绑定不同的纹理！
-                // 前 3 个面用蓝色棋盘格，后 3 个面用红色棋盘格
                 if faceIdx < 3 {
-                    gal.bindTexture(textureID: 0) // 蓝色
+                    gal.bindTexture(textureID: 0)
                 } else {
-                    gal.bindTexture(textureID: 1) // 红色
+                    gal.bindTexture(textureID: 1)
                 }
                 
                 let v0 = rotate(vertices3D[indices[0]])
@@ -151,6 +148,7 @@ struct MetalView: UIViewRepresentable {
                 )
             }
             
+            // 🔥 修复：submit 传入两个纹理
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
