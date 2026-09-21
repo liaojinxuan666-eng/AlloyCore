@@ -46,8 +46,9 @@ struct MetalView: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func generateSphere() {
-            let latBands = 20
-            let lonBands = 20
+            // 🔥 降低分辨率：从 20x20 降到 10x10（三角形从 800 降到 200）
+            let latBands = 10
+            let lonBands = 10
             
             for lat in 0...latBands {
                 let theta = Float(lat) * Float.pi / Float(latBands)
@@ -93,11 +94,17 @@ struct MetalView: UIViewRepresentable {
             let ax = time * 0.6
             let ay = time * 0.8
             
+            // 🔥 优化：把三角函数提取到循环外，每个顶点只做乘法
+            let cosAY = cos(ay)
+            let sinAY = sin(ay)
+            let cosAX = cos(ax)
+            let sinAX = sin(ax)
+            
             func rotate(_ v: SIMD3<Float>) -> SIMD3<Float> {
-                let x1 = v.x * cos(ay) - v.z * sin(ay)
-                let z1 = v.x * sin(ay) + v.z * cos(ay)
-                let y2 = v.y * cos(ax) - z1 * sin(ax)
-                let z2 = v.y * sin(ax) + z1 * cos(ax)
+                let x1 = v.x * cosAY - v.z * sinAY
+                let z1 = v.x * sinAY + v.z * cosAY
+                let y2 = v.y * cosAX - z1 * sinAX
+                let z2 = v.y * sinAX + z1 * cosAX
                 return SIMD3<Float>(x1, y2, z2)
             }
             
@@ -119,6 +126,8 @@ struct MetalView: UIViewRepresentable {
             gal.bindPipeline(pso)
             
             var finalVertexData: [Float] = []
+            finalVertexData.reserveCapacity(sphereVertices.count * 12)
+            
             for i in 0..<sphereVertices.count {
                 let worldPos = rotate(sphereVertices[i])
                 let (screenPos, invZ) = project(worldPos)
