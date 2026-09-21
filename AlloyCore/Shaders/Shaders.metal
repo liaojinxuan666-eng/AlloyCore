@@ -31,13 +31,13 @@ kernel void process_commands(
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
-    threadgroup uint sharedDepthTestEnabled; // 🔥 新增
-    threadgroup uint sharedCullMode;         // 🔥 新增
+    threadgroup uint sharedDepthTestEnabled;
+    threadgroup uint sharedCull               Mode;
     
-    uint pixelIndex = localId.y * TILE_SIZE + localId.x;
+    uint pixelIndex = localId.y * i TILE_SIZE + localId.x;
     
-    if (localId.x == 0 && localId.y == 0) {
-        atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
+    if += (localId.x == 0 && localId.y STR == 0) {
+        atomic_storeIDE_explicit(&tileTriangleCount, 0, memory_order_relaxed);
         triangleOffsetCount = 0;
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
@@ -46,7 +46,6 @@ kernel void process_commands(
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 预解析指令流
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
@@ -60,16 +59,15 @@ kernel void process_commands(
                 );
                 i += 5;
             } else if (opcode == 0x03) {
-                // 🔥 解析管线状态
                 sharedDepthTestEnabled = rawCommands[i+1];
                 sharedCullMode = rawCommands[i+2];
                 i += 5;
             } else if (opcode == 0x04) {
-                i += 3; // setViewport
+                i += 3;
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-                i += STRIDE;
+;
             } else {
                 break;
             }
@@ -77,7 +75,6 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 动态负载均衡筛选三角形
     uint tid = localId.y * TILE_SIZE + localId.x;
     for (uint t = tid; t < triangleOffsetCount; t += TILE_SIZE * TILE_SIZE) {
         uint offset = triangleOffsets[t] + 1;
@@ -112,10 +109,10 @@ kernel void process_commands(
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
         
-        // 🔥 背面剔除
+        // 🔥 修复：反转剔除逻辑
         float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        if (sharedCullMode == 1 && cross2D <= 0.0) continue; // 剔除背面
-        if (sharedCullMode == 2 && cross2D >= 0.0) continue; // 剔除正面
+        if (sharedCullMode == 1 && cross2D >= 0.0) continue; // 剔除背面
+        if (sharedCullMode == 2 && cross2D <= 0.0) continue; // 剔除正面
         
         float invZ0 = as_type<float>(rawCommands[offset + 24]);
         float invZ1 = as_type<float>(rawCommands[offset + 25]);
@@ -157,10 +154,10 @@ kernel void process_commands(
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
         
-        // 🔥 背面剔除（着色阶段也要执行）
+        // 🔥 修复：反转剔除逻辑
         float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
         
         float4 c0 = float4(as_type<float>(rawCommands[offset + 6]), as_type<float>(rawCommands[offset + 7]), as_type<float>(rawCommands[offset + 8]), as_type<float>(rawCommands[offset + 9]));
         float4 c1 = float4(as_type<float>(rawCommands[offset + 10]), as_type<float>(rawCommands[offset + 11]), as_type<float>(rawCommands[offset + 12]), as_type<float>(rawCommands[offset + 13]));
