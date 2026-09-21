@@ -20,6 +20,8 @@ struct MetalView: UIViewRepresentable {
             context.coordinator.texture1 = TextureHelper.createCheckerboardTexture(device: device, isRed: true)
         }
         
+        context.coordinator.generateSphere()
+        
         view.delegate = context.coordinator
         return view
     }
@@ -36,7 +38,47 @@ struct MetalView: UIViewRepresentable {
         var texture1: MTLTexture?
         var time: Float = 0.0
         
+        var sphereVertices: [SIMD3<Float>] = []
+        var sphereUVs: [SIMD2<Float>] = []
+        var sphereNormals: [SIMD3<Float>] = []
+        var sphereIndices: [UInt32] = []
+        
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+        
+        func generateSphere() {
+            let latBands = 20
+            let lonBands = 20
+            
+            for lat in 0...latBands {
+                let theta = Float(lat) * Float.pi / Float(latBands)
+                let sinTheta = sin(theta)
+                let cosTheta = cos(theta)
+                
+                for lon in 0...lonBands {
+                    let phi = Float(lon) * 2.0 * Float.pi / Float(lonBands)
+                    let sinPhi = sin(phi)
+                    let cosPhi = cos(phi)
+                    
+                    let x = cosPhi * sinTheta
+                    let y = cosTheta
+                    let z = sinPhi * sinTheta
+                    
+                    sphereVertices.append(SIMD3<Float>(x, y, z))
+                    sphereUVs.append(SIMD2<Float>(Float(lon)/Float(lonBands), Float(lat)/Float(latBands)))
+                    sphereNormals.append(SIMD3<Float>(x, y, z))
+                }
+            }
+            
+            for lat in 0..<latBands {
+                for lon in 0..<lonBands {
+                    let first = UInt32(lat * (lonBands + 1) + lon)
+                    let second = first + UInt32(lonBands + 1)
+                    
+                    sphereIndices.append(contentsOf: [first, second, first + 1])
+                    sphereIndices.append(contentsOf: [second, second + 1, first + 1])
+                }
+            }
+        }
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
@@ -47,34 +89,6 @@ struct MetalView: UIViewRepresentable {
             let width = Float(drawable.texture.width)
             let height = Float(drawable.texture.height)
             time += 0.02
-            
-            // 立方体模型空间顶点
-            let cubeVertices: [SIMD3<Float>] = [
-                SIMD3<Float>(-1, -1, -1), SIMD3<Float>( 1, -1, -1),
-                SIMD3<Float>( 1,  1, -1), SIMD3<Float>(-1,  1, -1),
-                SIMD3<Float>(-1, -1,  1), SIMD3<Float>( 1, -1,  1),
-                SIMD3<Float>( 1,  1,  1), SIMD3<Float>(-1,  1,  1)
-            ]
-            
-            let faceIndices: [[Int]] = [
-                [0, 1, 2, 3], [1, 5, 6, 2], [5, 4, 7, 6],
-                [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
-            ]
-            
-            let faceNormals: [SIMD3<Float>] = [
-                SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0),
-                SIMD3<Float>(0, 0, 1),  SIMD3<Float>(-1, 0, 0),
-                SIMD3<Float>(0, 1, 0),  SIMD3<Float>(0, -1, 0)
-            ]
-            
-            let faceUVs: [[SIMD2<Float>]] = [
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)],
-                [SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)]
-            ]
             
             let ax = time * 0.6
             let ay = time * 0.8
@@ -104,32 +118,24 @@ struct MetalView: UIViewRepresentable {
             pso.cullMode = 1
             gal.bindPipeline(pso)
             
-            // 🔥 关键改动：给每个面添加 4 个顶点，然后发 2 个 drawIndexed 指令
-            for (faceIdx, indices) in faceIndices.enumerated() {
-                let texID: UInt32 = faceIdx < 3 ? 0 : 1
-                let n = rotate(faceNormals[faceIdx])
-                let uvs = faceUVs[faceIdx]
+            var finalVertexData: [Float] = []
+            for i in 0..<sphereVertices.count {
+                let worldPos = rotate(sphereVertices[i])
+                let (screenPos, invZ) = project(worldPos)
+                let n = rotate(sphereNormals[i])
                 
-                // 添加这个面的 4 个顶点到 VBO
-                var faceVertIndices: [UInt32] = []
-                for k in 0..<4 {
-                    let worldPos = rotate(cubeVertices[indices[k]])
-                    let (screenPos, invZ) = project(worldPos)
-                    
-                    let idx = gal.addVertex(
-                        position: screenPos,
-                        color: SIMD4<Float>(1, 1, 1, 1),
-                        uv: uvs[k],
-                        invZ: invZ,
-                        normal: n
-                    )
-                    faceVertIndices.append(idx)
-                }
-                
-                // 发 2 个 drawIndexed 指令（每个面 = 2 个三角形）
-                gal.drawIndexed(v0: faceVertIndices[0], v1: faceVertIndices[1], v2: faceVertIndices[2], textureID: texID)
-                gal.drawIndexed(v0: faceVertIndices[0], v1: faceVertIndices[2], v2: faceVertIndices[3], textureID: texID)
+                finalVertexData.append(contentsOf: [
+                    screenPos.x, screenPos.y,
+                    1, 1, 1, 1,
+                    sphereUVs[i].x, sphereUVs[i].y,
+                    invZ,
+                    n.x, n.y, n.z
+                ])
             }
+            
+            gal.vertexData = finalVertexData
+            gal.indexData = sphereIndices
+            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(sphereIndices.count), textureID: 0)
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
