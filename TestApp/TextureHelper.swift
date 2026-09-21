@@ -2,7 +2,8 @@ import Metal
 import simd
 
 class TextureHelper {
-    static func createCheckerboardTexture(device: MTLDevice) -> MTLTexture? {
+    // 蓝白棋盘格（现有的）
+    static func createCheckerboardTexture(device: MTLDevice, isRed: Bool = false) -> MTLTexture? {
         let width = 64
         let height = 64
         let bytesPerPixel = 4
@@ -14,9 +15,15 @@ class TextureHelper {
         for y in 0..<height {
             for x in 0..<width {
                 let offset = (y * width + x) * bytesPerPixel
-                // 8x8 的棋盘格
                 let isWhite = (x / 8 + y / 8) % 2 == 0
-                let color: (UInt8, UInt8, UInt8, UInt8) = isWhite ? (255, 255, 255, 255) : (50, 50, 150, 255)
+                
+                // 根据参数生成蓝色或红色的棋盘格
+                let color: (UInt8, UInt8, UInt8, UInt8)
+                if isWhite {
+                    color = (255, 255, 255, 255)
+                } else {
+                    color = isRed ? (200, 50, 50, 255) : (50, 50, 150, 255)
+                }
                 
                 pixelData[offset] = color.0
                 pixelData[offset + 1] = color.1
