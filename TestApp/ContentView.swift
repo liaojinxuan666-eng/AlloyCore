@@ -16,7 +16,9 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.renderer = renderer
         
         if let device = view.device {
-            context.coordinator.texture = TextureHelper.createCheckerboardTexture(device: device)
+            // 🔥 生成两张纹理
+            context.coordinator.texture0 = TextureHelper.createCheckerboardTexture(device: device, isRed: false)
+            context.coordinator.texture1 = TextureHelper.createCheckerboardTexture(device: device, isRed: true)
         }
         
         view.delegate = context.coordinator
@@ -31,14 +33,16 @@ struct MetalView: UIViewRepresentable {
     
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var texture: MTLTexture?
+        var texture0: MTLTexture? // 蓝色棋盘格
+        var texture1: MTLTexture? // 红色棋盘格
         var time: Float = 0.0
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func draw(in view: MTKView) {
             guard let renderer = renderer,
-                  let texture = texture,
+                  let texture0 = texture0,
+                  let texture1 = texture1,
                   let drawable = view.currentDrawable else { return }
             
             let width = Float(drawable.texture.width)
@@ -99,10 +103,7 @@ struct MetalView: UIViewRepresentable {
             
             let gal = AlloyGAL()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
-            
-            // 🔥 调用新增的 GAL 接口
             gal.setViewport(width: Int(width), height: Int(height))
-            gal.bindTexture(textureID: 0)
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
@@ -110,6 +111,14 @@ struct MetalView: UIViewRepresentable {
             gal.bindPipeline(pso)
             
             for (faceIdx, indices) in faceIndices.enumerated() {
+                // 🔥 核心：根据不同的面，绑定不同的纹理！
+                // 前 3 个面用蓝色棋盘格，后 3 个面用红色棋盘格
+                if faceIdx < 3 {
+                    gal.bindTexture(textureID: 0) // 蓝色
+                } else {
+                    gal.bindTexture(textureID: 1) // 红色
+                }
+                
                 let v0 = rotate(vertices3D[indices[0]])
                 let v1 = rotate(vertices3D[indices[1]])
                 let v2 = rotate(vertices3D[indices[2]])
@@ -142,7 +151,7 @@ struct MetalView: UIViewRepresentable {
                 )
             }
             
-            if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture: texture) {
+            if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
