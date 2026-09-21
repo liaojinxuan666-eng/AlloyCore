@@ -12,30 +12,10 @@ public struct AlloyPipelineDescriptor {
 
 public class AlloyGAL {
     private var commandBuffer: [UInt32] = []
-    public var vertexData: [Float] = []   // 每个顶点 12 个 float
+    public var vertexData: [Float] = []
     public var indexData: [UInt32] = []
     
     public init() {}
-    
-    // 顶点布局（12 个 float）：
-    // [0-1] position, [2-5] color, [6-7] uv, [8] invZ, [9-11] normal
-    public func addVertex(
-        position: SIMD2<Float>,
-        color: SIMD4<Float>,
-        uv: SIMD2<Float>,
-        invZ: Float,
-        normal: SIMD3<Float>
-    ) -> UInt32 {
-        let idx = UInt32(vertexData.count / 12)
-        vertexData.append(contentsOf: [
-            position.x, position.y,
-            color.x, color.y, color.z, color.w,
-            uv.x, uv.y,
-            invZ,
-            normal.x, normal.y, normal.z
-        ])
-        return idx
-    }
     
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         commandBuffer.append(0x02)
@@ -59,24 +39,26 @@ public class AlloyGAL {
         commandBuffer.append(Float(height).bitPattern)
     }
     
-    // 指令 0x01：画一个三角形
-    // [0x01] [indexStart] [indexCount] [texID] = 4 个 uint
+    // 画一个三角形
     public func drawIndexed(v0: UInt32, v1: UInt32, v2: UInt32, textureID: UInt32) {
         let indexStart = UInt32(indexData.count)
         indexData.append(contentsOf: [v0, v1, v2])
         
         commandBuffer.append(0x01)
         commandBuffer.append(indexStart)
-        commandBuffer.append(3) // 1 个三角形有 3 个索引
+        commandBuffer.append(3)
         commandBuffer.append(textureID)
     }
     
-    public func submit(
-        to renderer: AlloyRenderer,
-        drawable: CAMetalDrawable,
-        texture0: MTLTexture,
-        texture1: MTLTexture
-    ) -> MTLCommandBuffer? {
+    // 一次性绘制大段索引（比如球体）
+    public func drawIndexedRange(startIndex: UInt32, indexCount: UInt32, textureID: UInt32) {
+        commandBuffer.append(0x01)
+        commandBuffer.append(startIndex)
+        commandBuffer.append(indexCount)
+        commandBuffer.append(textureID)
+    }
+    
+    public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture) -> MTLCommandBuffer? {
         return renderer.render(
             drawable: drawable,
             texture0: texture0,
