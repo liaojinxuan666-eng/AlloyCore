@@ -32,12 +32,12 @@ kernel void process_commands(
     threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
     threadgroup uint sharedDepthTestEnabled;
-    threadgroup uint sharedCull               Mode;
+    threadgroup uint sharedCullMode;
     
-    uint pixelIndex = localId.y * i TILE_SIZE + localId.x;
+    uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
-    if += (localId.x == 0 && localId.y STR == 0) {
-        atomic_storeIDE_explicit(&tileTriangleCount, 0, memory_order_relaxed);
+    if (localId.x == 0 && localId.y == 0) {
+        atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
         triangleOffsetCount = 0;
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
@@ -67,7 +67,7 @@ kernel void process_commands(
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-;
+                i += STRIDE;
             } else {
                 break;
             }
@@ -109,7 +109,7 @@ kernel void process_commands(
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
         
-        // 🔥 修复：反转剔除逻辑
+        // 修复：反转剔除逻辑
         float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
         if (sharedCullMode == 1 && cross2D >= 0.0) continue; // 剔除背面
         if (sharedCullMode == 2 && cross2D <= 0.0) continue; // 剔除正面
@@ -154,7 +154,7 @@ kernel void process_commands(
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
         
-        // 🔥 修复：反转剔除逻辑
+        // 修复：反转剔除逻辑
         float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
         if (sharedCullMode == 1 && cross2D >= 0.0) continue;
         if (sharedCullMode == 2 && cross2D <= 0.0) continue;
