@@ -31,17 +31,22 @@ kernel void process_commands(
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
+    threadgroup uint sharedDepthTestEnabled; // 🔥 新增
+    threadgroup uint sharedCullMode;         // 🔥 新增
+    
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     if (localId.x == 0 && localId.y == 0) {
         atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
         triangleOffsetCount = 0;
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
+        sharedDepthTestEnabled = 1;
+        sharedCullMode = 0;
     }
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 预解析
+    // 预解析指令流
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
@@ -55,13 +60,16 @@ kernel void process_commands(
                 );
                 i += 5;
             } else if (opcode == 0x03) {
+                // 🔥 解析管线状态
+                sharedDepthTestEnabled = rawCommands[i+1];
+                sharedCullMode = rawCommands[i+2];
                 i += 5;
             } else if (opcode == 0x04) {
-                i += 3;
+                i += 3; // setViewport
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-                i += STRIDE; // 🔥 现在是 38
+                i += STRIDE;
             } else {
                 break;
             }
@@ -104,6 +112,11 @@ kernel void process_commands(
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
         
+        // 🔥 背面剔除
+        float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+        if (sharedCullMode == 1 && cross2D <= 0.0) continue; // 剔除背面
+        if (sharedCullMode == 2 && cross2D >= 0.0) continue; // 剔除正面
+        
         float invZ0 = as_type<float>(rawCommands[offset + 24]);
         float invZ1 = as_type<float>(rawCommands[offset + 25]);
         float invZ2 = as_type<float>(rawCommands[offset + 26]);
@@ -125,8 +138,10 @@ kernel void process_commands(
         
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
-            if (invZInterp > tileDepthBuffer[pixelIndex]) {
-                tileDepthBuffer[pixelIndex] = invZInterp;
+            if (sharedDepthTestEnabled == 1) {
+                if (invZInterp > tileDepthBuffer[pixelIndex]) {
+                    tileDepthBuffer[pixelIndex] = invZInterp;
+                }
             }
         }
     }
@@ -141,6 +156,11 @@ kernel void process_commands(
         float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
         float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
         float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
+        
+        // 🔥 背面剔除（着色阶段也要执行）
+        float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
         
         float4 c0 = float4(as_type<float>(rawCommands[offset + 6]), as_type<float>(rawCommands[offset + 7]), as_type<float>(rawCommands[offset + 8]), as_type<float>(rawCommands[offset + 9]));
         float4 c1 = float4(as_type<float>(rawCommands[offset + 10]), as_type<float>(rawCommands[offset + 11]), as_type<float>(rawCommands[offset + 12]), as_type<float>(rawCommands[offset + 13]));
@@ -158,7 +178,6 @@ kernel void process_commands(
         float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
         float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
         
-        // 🔥 读取 textureID
         uint texID = as_type<uint>(rawCommands[offset + 36]);
         
         float2 v0 = p1 - p0;
@@ -179,10 +198,16 @@ kernel void process_commands(
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
             
-            if (abs(invZInterp - tileDepthBuffer[pixelIndex]) < 0.0001) {
+            bool shouldDraw = true;
+            if (sharedDepthTestEnabled == 1) {
+                if (abs(invZInterp - tileDepthBuffer[pixelIndex]) >= 0.0001) {
+                    shouldDraw = false;
+                }
+            }
+            
+            if (shouldDraw) {
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
                 
-                // 🔥 根据 texID 选择纹理
                 float4 texColor;
                 if (texID == 0) {
                     texColor = texture0.sample(textureSampler, uvInterp);
@@ -191,7 +216,6 @@ kernel void process_commands(
                 }
                 
                 float4 vertexColor = w * c0 + u * c1 + v * c2;
-                
                 float3 normal = normalize(w * n0 + u * n1 + v * n2);
                 float intensity = max(dot(normal, lightDir), 0.2);
                 
