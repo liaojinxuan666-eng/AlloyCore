@@ -6,7 +6,6 @@ public class AlloyRenderer {
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
     var pipelineState: MTLComputePipelineState!
-    
     let tileSize: Int = 16
     
     public init?() {
@@ -30,14 +29,31 @@ public class AlloyRenderer {
         }
     }
     
-    // 🔥 修改：接收两个纹理
-    public func render(drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture, rawCommands: [UInt32]) -> MTLCommandBuffer? {
+    public func render(
+        drawable: CAMetalDrawable,
+        texture0: MTLTexture,
+        texture1: MTLTexture,
+        rawCommands: [UInt32],
+        vertexData: [Float],
+        indexData: [UInt32]
+    ) -> MTLCommandBuffer? {
         let outputTexture = drawable.texture
         guard !rawCommands.isEmpty else { return nil }
         
+        // 1. 上传指令流
         let commandBuffer = device.makeBuffer(bytes: rawCommands,
                                               length: rawCommands.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
+        
+        // 2. 上传顶点缓冲（VBO）
+        let vertexBuffer = device.makeBuffer(bytes: vertexData,
+                                             length: vertexData.count * MemoryLayout<Float>.size,
+                                             options: .storageModeShared)
+        
+        // 3. 上传索引缓冲（IBO）
+        let indexBuffer = device.makeBuffer(bytes: indexData,
+                                            length: indexData.count * MemoryLayout<UInt32>.size,
+                                            options: .storageModeShared)
         
         var commandCount = UInt32(rawCommands.count)
         
@@ -47,9 +63,11 @@ public class AlloyRenderer {
         encoder.setComputePipelineState(pipelineState)
         encoder.setBuffer(commandBuffer, offset: 0, index: 0)
         encoder.setBytes(&commandCount, length: MemoryLayout<UInt32>.size, index: 1)
+        encoder.setBuffer(vertexBuffer, offset: 0, index: 2)  // VBO
+        encoder.setBuffer(indexBuffer, offset: 0, index: 3)   // IBO
         encoder.setTexture(outputTexture, index: 0)
-        encoder.setTexture(texture0, index: 1) // 纹理 0
-        encoder.setTexture(texture1, index: 2) // 纹理 1
+        encoder.setTexture(texture0, index: 1)
+        encoder.setTexture(texture1, index: 2)
         
         let threadsPerThreadgroup = MTLSize(width: tileSize, height: tileSize, depth: 1)
         let threadsPerGrid = MTLSize(width: outputTexture.width, height: outputTexture.height, depth: 1)
