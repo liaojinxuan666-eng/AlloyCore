@@ -7,14 +7,35 @@ public struct AlloyPipelineDescriptor {
     public var cullMode: Int = 0
     public var blendEnabled: Bool = false
     public var shaderID: UInt32 = 0
-    
     public init() {}
 }
 
 public class AlloyGAL {
     private var commandBuffer: [UInt32] = []
+    public var vertexData: [Float] = []   // 每个顶点 12 个 float
+    public var indexData: [UInt32] = []
     
     public init() {}
+    
+    // 顶点布局（12 个 float）：
+    // [0-1] position, [2-5] color, [6-7] uv, [8] invZ, [9-11] normal
+    public func addVertex(
+        position: SIMD2<Float>,
+        color: SIMD4<Float>,
+        uv: SIMD2<Float>,
+        invZ: Float,
+        normal: SIMD3<Float>
+    ) -> UInt32 {
+        let idx = UInt32(vertexData.count / 12)
+        vertexData.append(contentsOf: [
+            position.x, position.y,
+            color.x, color.y, color.z, color.w,
+            uv.x, uv.y,
+            invZ,
+            normal.x, normal.y, normal.z
+        ])
+        return idx
+    }
     
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         commandBuffer.append(0x02)
@@ -38,34 +59,31 @@ public class AlloyGAL {
         commandBuffer.append(Float(height).bitPattern)
     }
     
-    // 🔥 修复：drawTriangle 直接携带 textureID
-    public func drawTriangle(
-        p0: SIMD2<Float>, p1: SIMD2<Float>, p2: SIMD2<Float>,
-        color: SIMD4<Float>,
-        z0: Float, z1: Float, z2: Float,
-        textureID: UInt32, // 🔥 新增
-        uv0: SIMD2<Float> = .zero, uv1: SIMD2<Float> = .zero, uv2: SIMD2<Float> = .zero,
-        n0: SIMD3<Float> = .zero, n1: SIMD3<Float> = .zero, n2: SIMD3<Float> = .zero
-    ) {
+    // 指令 0x01：画一个三角形
+    // [0x01] [indexStart] [indexCount] [texID] = 4 个 uint
+    public func drawIndexed(v0: UInt32, v1: UInt32, v2: UInt32, textureID: UInt32) {
+        let indexStart = UInt32(indexData.count)
+        indexData.append(contentsOf: [v0, v1, v2])
+        
         commandBuffer.append(0x01)
-        
-        let floats: [Float] = [
-            p0.x, p0.y, p1.x, p1.y, p2.x, p2.y,
-            color.x, color.y, color.z, color.w,
-            color.x, color.y, color.z, color.w,
-            color.x, color.y, color.z, color.w,
-            uv0.x, uv0.y, uv1.x, uv1.y, uv2.x, uv2.y,
-            z0, z1, z2,
-            n0.x, n0.y, n0.z, n1.x, n1.y, n1.z, n2.x, n2.y, n2.z,
-            Float(textureID) // 🔥 将 textureID 追加到末尾
-        ]
-        
-        for f in floats {
-            commandBuffer.append(f.bitPattern)
-        }
+        commandBuffer.append(indexStart)
+        commandBuffer.append(3) // 1 个三角形有 3 个索引
+        commandBuffer.append(textureID)
     }
     
-    public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture) -> MTLCommandBuffer? {
-        return renderer.render(drawable: drawable, texture0: texture0, texture1: texture1, rawCommands: commandBuffer)
+    public func submit(
+        to renderer: AlloyRenderer,
+        drawable: CAMetalDrawable,
+        texture0: MTLTexture,
+        texture1: MTLTexture
+    ) -> MTLCommandBuffer? {
+        return renderer.render(
+            drawable: drawable,
+            texture0: texture0,
+            texture1: texture1,
+            rawCommands: commandBuffer,
+            vertexData: vertexData,
+            indexData: indexData
+        )
     }
 }
