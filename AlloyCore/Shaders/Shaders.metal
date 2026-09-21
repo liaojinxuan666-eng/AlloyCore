@@ -1,14 +1,39 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// 1 个 opcode + 37 个 float = 38 个 uint
-constant int STRIDE = 38;
-constant int MAX_TILE_TRIANGLES = 64;
+constant int MAX_TILE_TRIANGLES = 128;
 constant int TILE_SIZE = 16;
+constant int VERTEX_STRIDE = 12; // 每个顶点 12 个 float
+
+struct Vertex {
+    float2 position;
+    float4 color;
+    float2 uv;
+    float invZ;
+    float3 normal;
+};
+
+struct TriangleRef {
+    uint v0, v1, v2;
+    uint texID;
+};
+
+inline Vertex loadVertex(device const float* vd, uint index) {
+    uint off = index * VERTEX_STRIDE;
+    Vertex v;
+    v.position = float2(vd[off], vd[off+1]);
+    v.color = float4(vd[off+2], vd[off+3], vd[off+4], vd[off+5]);
+    v.uv = float2(vd[off+6], vd[off+7]);
+    v.invZ = vd[off+8];
+    v.normal = float3(vd[off+9], vd[off+10], vd[off+11]);
+    return v;
+}
 
 kernel void process_commands(
     device const uint* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
+    device const float* vertexData [[buffer(2)]],
+    device const uint* indexData [[buffer(3)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> texture0 [[texture(1)]],
     texture2d<float> texture1 [[texture(2)]],
@@ -25,10 +50,8 @@ kernel void process_commands(
     float2 pixel_pos = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
 
-    threadgroup atomic_uint tileTriangleCount;
-    threadgroup uint triangleOffsets[MAX_TILE_TRIANGLES];
-    threadgroup uint triangleOffsetCount;
-    threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
+    threadgroup atomic_uint triCount;
+    threadgroup TriangleRef triList[MAX_TILE_TRIANGLES];
     threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
     threadgroup uint sharedDepthTestEnabled;
@@ -37,8 +60,7 @@ kernel void process_commands(
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     if (localId.x == 0 && localId.y == 0) {
-        atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
-        triangleOffsetCount = 0;
+        atomic_store_explicit(&triCount, 0, memory_order_relaxed);
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
         sharedCullMode = 0;
@@ -46,9 +68,10 @@ kernel void process_commands(
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // ============ 第 1 步：预解析，收集三角形 ============
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
-        while (i < commandCount && triangleOffsetCount < MAX_TILE_TRIANGLES) {
+        while (i < commandCount) {
             uint opcode = rawCommands[i];
             if (opcode == 0x02) {
                 sharedClearColor = float4(
@@ -65,9 +88,38 @@ kernel void process_commands(
             } else if (opcode == 0x04) {
                 i += 3;
             } else if (opcode == 0x01) {
-                triangleOffsets[triangleOffsetCount] = i;
-                triangleOffsetCount++;
-                i += STRIDE;
+                uint indexStart = rawCommands[i+1];
+                uint indexCount = rawCommands[i+2];
+                uint texID = rawCommands[i+3];
+                
+                for (uint t = 0; t < indexCount; t += 3) {
+                    if (atomic_load_explicit(&triCount, memory_order_relaxed) >= MAX_TILE_TRIANGLES) break;
+                    
+                    uint v0 = indexData[indexStart + t];
+                    uint v1 = indexData[indexStart + t + 1];
+                    uint v2 = indexData[indexStart + t + 2];
+                    
+                    Vertex vert0 = loadVertex(vertexData, v0);
+                    Vertex vert1 = loadVertex(vertexData, v1);
+                    Vertex vert2 = loadVertex(vertexData, v2);
+                    
+                    float minX = min(min(vert0.position.x, vert1.position.x), vert2.position.x);
+                    float maxX = max(max(vert0.position.x, vert1.position.x), vert2.position.x);
+                    float minY = min(min(vert0.position.y, vert1.position.y), vert2.position.y);
+                    float maxY = max(max(vert0.position.y, vert1.position.y), vert2.position.y);
+                    
+                    if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) &&
+                        maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
+                        uint idx = atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed);
+                        if (idx < MAX_TILE_TRIANGLES) {
+                            triList[idx].v0 = v0;
+                            triList[idx].v1 = v1;
+                            triList[idx].v2 = v2;
+                            triList[idx].texID = texID;
+                        }
+                    }
+                }
+                i += 4;
             } else {
                 break;
             }
@@ -75,148 +127,104 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    uint tid = localId.y * TILE_SIZE + localId.x;
-    for (uint t = tid; t < triangleOffsetCount; t += TILE_SIZE * TILE_SIZE) {
-        uint offset = triangleOffsets[t] + 1;
-        
-        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
-        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
-        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
-        
-        float minX = min(min(p0.x, p1.x), p2.x);
-        float maxX = max(max(p0.x, p1.x), p2.x);
-        float minY = min(min(p0.y, p1.y), p2.y);
-        float maxY = max(max(p0.y, p1.y), p2.y);
-        
-        if (maxX >= float(tileMin.x) && minX <= float(tileMax.x) && 
-            maxY >= float(tileMin.y) && minY <= float(tileMax.y)) {
-            uint idx = atomic_fetch_add_explicit(&tileTriangleCount, 1, memory_order_relaxed);
-            if (idx < MAX_TILE_TRIANGLES) {
-                tileTriangleIndices[idx] = triangleOffsets[t];
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    uint finalTriangleCount = atomic_load_explicit(&tileTriangleCount, memory_order_relaxed);
-    if (finalTriangleCount > MAX_TILE_TRIANGLES) finalTriangleCount = MAX_TILE_TRIANGLES;
+    uint finalTriCount = atomic_load_explicit(&triCount, memory_order_relaxed);
+    if (finalTriCount > MAX_TILE_TRIANGLES) finalTriCount = MAX_TILE_TRIANGLES;
 
-    // 深度预通道
-    for (uint t = 0; t < finalTriangleCount; t++) {
-        uint offset = tileTriangleIndices[t] + 1;
+    // ============ 第 2 步：深度预通道 ============
+    for (uint t = 0; t < finalTriCount; t++) {
+        TriangleRef ref = triList[t];
+        Vertex v0 = loadVertex(vertexData, ref.v0);
+        Vertex v1 = loadVertex(vertexData, ref.v1);
+        Vertex v2 = loadVertex(vertexData, ref.v2);
         
-        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
-        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
-        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
+        float2 p0 = v0.position;
+        float2 p1 = v1.position;
+        float2 p2 = v2.position;
         
-        // 修复：反转剔除逻辑
-        float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        if (sharedCullMode == 1 && cross2D >= 0.0) continue; // 剔除背面
-        if (sharedCullMode == 2 && cross2D <= 0.0) continue; // 剔除正面
-        
-        float invZ0 = as_type<float>(rawCommands[offset + 24]);
-        float invZ1 = as_type<float>(rawCommands[offset + 25]);
-        float invZ2 = as_type<float>(rawCommands[offset + 26]);
-        
-        float2 v0 = p1 - p0;
-        float2 v1 = p2 - p0;
-        float2 v2 = pixel_pos - p0;
-        
-        float dot00 = dot(v0, v0);
-        float dot01 = dot(v0, v1);
-        float dot02 = dot(v0, v2);
-        float dot11 = dot(v1, v1);
-        float dot12 = dot(v1, v2);
-        
-        float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-        float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-        float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-        float w = 1.0 - u - v;
-        
-        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
-            if (sharedDepthTestEnabled == 1) {
-                if (invZInterp > tileDepthBuffer[pixelIndex]) {
-                    tileDepthBuffer[pixelIndex] = invZInterp;
-                }
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // 着色通道
-    float4 finalColor = sharedClearColor;
-    
-    for (uint t = 0; t < finalTriangleCount; t++) {
-        uint offset = tileTriangleIndices[t] + 1;
-        
-        float2 p0 = float2(as_type<float>(rawCommands[offset + 0]), as_type<float>(rawCommands[offset + 1]));
-        float2 p1 = float2(as_type<float>(rawCommands[offset + 2]), as_type<float>(rawCommands[offset + 3]));
-        float2 p2 = float2(as_type<float>(rawCommands[offset + 4]), as_type<float>(rawCommands[offset + 5]));
-        
-        // 修复：反转剔除逻辑
         float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
         if (sharedCullMode == 1 && cross2D >= 0.0) continue;
         if (sharedCullMode == 2 && cross2D <= 0.0) continue;
         
-        float4 c0 = float4(as_type<float>(rawCommands[offset + 6]), as_type<float>(rawCommands[offset + 7]), as_type<float>(rawCommands[offset + 8]), as_type<float>(rawCommands[offset + 9]));
-        float4 c1 = float4(as_type<float>(rawCommands[offset + 10]), as_type<float>(rawCommands[offset + 11]), as_type<float>(rawCommands[offset + 12]), as_type<float>(rawCommands[offset + 13]));
-        float4 c2 = float4(as_type<float>(rawCommands[offset + 14]), as_type<float>(rawCommands[offset + 15]), as_type<float>(rawCommands[offset + 16]), as_type<float>(rawCommands[offset + 17]));
+        float2 e0 = p1 - p0;
+        float2 e1 = p2 - p0;
+        float2 e2 = pixel_pos - p0;
         
-        float2 uv0 = float2(as_type<float>(rawCommands[offset + 18]), as_type<float>(rawCommands[offset + 19]));
-        float2 uv1 = float2(as_type<float>(rawCommands[offset + 20]), as_type<float>(rawCommands[offset + 21]));
-        float2 uv2 = float2(as_type<float>(rawCommands[offset + 22]), as_type<float>(rawCommands[offset + 23]));
+        float d00 = dot(e0, e0);
+        float d01 = dot(e0, e1);
+        float d02 = dot(e0, e2);
+        float d11 = dot(e1, e1);
+        float d12 = dot(e1, e2);
         
-        float invZ0 = as_type<float>(rawCommands[offset + 24]);
-        float invZ1 = as_type<float>(rawCommands[offset + 25]);
-        float invZ2 = as_type<float>(rawCommands[offset + 26]);
-        
-        float3 n0 = float3(as_type<float>(rawCommands[offset + 27]), as_type<float>(rawCommands[offset + 28]), as_type<float>(rawCommands[offset + 29]));
-        float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
-        float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
-        
-        uint texID = as_type<uint>(rawCommands[offset + 36]);
-        
-        float2 v0 = p1 - p0;
-        float2 v1 = p2 - p0;
-        float2 v2 = pixel_pos - p0;
-        
-        float dot00 = dot(v0, v0);
-        float dot01 = dot(v0, v1);
-        float dot02 = dot(v0, v2);
-        float dot11 = dot(v1, v1);
-        float dot12 = dot(v1, v2);
-        
-        float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-        float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-        float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+        float invDenom = 1.0 / (d00 * d11 - d01 * d01);
+        float u = (d11 * d02 - d01 * d12) * invDenom;
+        float v = (d00 * d12 - d01 * d02) * invDenom;
         float w = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            float invZInterp = w * invZ0 + u * invZ1 + v * invZ2;
+            float invZ = w * v0.invZ + u * v1.invZ + v * v2.invZ;
+            if (sharedDepthTestEnabled == 1) {
+                if (invZ > tileDepthBuffer[pixelIndex]) {
+                    tileDepthBuffer[pixelIndex] = invZ;
+                }
+            }
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // ============ 第 3 步：着色通道 ============
+    float4 finalColor = sharedClearColor;
+    
+    for (uint t = 0; t < finalTriCount; t++) {
+        TriangleRef ref = triList[t];
+        Vertex v0 = loadVertex(vertexData, ref.v0);
+        Vertex v1 = loadVertex(vertexData, ref.v1);
+        Vertex v2 = loadVertex(vertexData, ref.v2);
+        
+        float2 p0 = v0.position;
+        float2 p1 = v1.position;
+        float2 p2 = v2.position;
+        
+        float cross2D = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
+        
+        float2 e0 = p1 - p0;
+        float2 e1 = p2 - p0;
+        float2 e2 = pixel_pos - p0;
+        
+        float d00 = dot(e0, e0);
+        float d01 = dot(e0, e1);
+        float d02 = dot(e0, e2);
+        float d11 = dot(e1, e1);
+        float d12 = dot(e1, e2);
+        
+        float invDenom = 1.0 / (d00 * d11 - d01 * d01);
+        float u = (d11 * d02 - d01 * d12) * invDenom;
+        float v = (d00 * d12 - d01 * d02) * invDenom;
+        float w = 1.0 - u - v;
+        
+        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
+            float invZ = w * v0.invZ + u * v1.invZ + v * v2.invZ;
             
             bool shouldDraw = true;
             if (sharedDepthTestEnabled == 1) {
-                if (abs(invZInterp - tileDepthBuffer[pixelIndex]) >= 0.0001) {
-                    shouldDraw = false;
-                }
+                if (abs(invZ - tileDepthBuffer[pixelIndex]) >= 0.0001) shouldDraw = false;
             }
             
             if (shouldDraw) {
-                float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
+                float2 uvInterp = (w * v0.uv * v0.invZ + u * v1.uv * v1.invZ + v * v2.uv * v2.invZ) / invZ;
+                float4 colorInterp = w * v0.color + u * v1.color + v * v2.color;
+                float3 normal = normalize(w * v0.normal + u * v1.normal + v * v2.normal);
                 
                 float4 texColor;
-                if (texID == 0) {
+                if (ref.texID == 0) {
                     texColor = texture0.sample(textureSampler, uvInterp);
                 } else {
                     texColor = texture1.sample(textureSampler, uvInterp);
                 }
                 
-                float4 vertexColor = w * c0 + u * c1 + v * c2;
-                float3 normal = normalize(w * n0 + u * n1 + v * n2);
                 float intensity = max(dot(normal, lightDir), 0.2);
-                
-                finalColor = vertexColor * texColor * intensity;
+                finalColor = colorInterp * texColor * intensity;
             }
         }
     }
