@@ -1,7 +1,8 @@
 #include <metal_stdlib>
 using namespace metal;
 
-constant int STRIDE = 37;
+// 1 个 opcode + 37 个 float = 38 个 uint
+constant int STRIDE = 38;
 constant int MAX_TILE_TRIANGLES = 64;
 constant int TILE_SIZE = 16;
 
@@ -30,14 +31,12 @@ kernel void process_commands(
     threadgroup int tileTriangleIndices[MAX_TILE_TRIANGLES];
     threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
-    threadgroup uint sharedTextureID; // 🔥 当前纹理 ID
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     if (localId.x == 0 && localId.y == 0) {
         atomic_store_explicit(&tileTriangleCount, 0, memory_order_relaxed);
         triangleOffsetCount = 0;
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
-        sharedTextureID = 0;
     }
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -58,15 +57,11 @@ kernel void process_commands(
             } else if (opcode == 0x03) {
                 i += 5;
             } else if (opcode == 0x04) {
-                i += 3; // setViewport
-            } else if (opcode == 0x05) {
-                // 🔥 解析绑定纹理指令
-                sharedTextureID = rawCommands[i+1];
-                i += 2;
+                i += 3;
             } else if (opcode == 0x01) {
                 triangleOffsets[triangleOffsetCount] = i;
                 triangleOffsetCount++;
-                i += STRIDE;
+                i += STRIDE; // 🔥 现在是 38
             } else {
                 break;
             }
@@ -74,7 +69,7 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 筛选
+    // 动态负载均衡筛选三角形
     uint tid = localId.y * TILE_SIZE + localId.x;
     for (uint t = tid; t < triangleOffsetCount; t += TILE_SIZE * TILE_SIZE) {
         uint offset = triangleOffsets[t] + 1;
@@ -163,6 +158,9 @@ kernel void process_commands(
         float3 n1 = float3(as_type<float>(rawCommands[offset + 30]), as_type<float>(rawCommands[offset + 31]), as_type<float>(rawCommands[offset + 32]));
         float3 n2 = float3(as_type<float>(rawCommands[offset + 33]), as_type<float>(rawCommands[offset + 34]), as_type<float>(rawCommands[offset + 35]));
         
+        // 🔥 读取 textureID
+        uint texID = as_type<uint>(rawCommands[offset + 36]);
+        
         float2 v0 = p1 - p0;
         float2 v1 = p2 - p0;
         float2 v2 = pixel_pos - p0;
@@ -184,9 +182,9 @@ kernel void process_commands(
             if (abs(invZInterp - tileDepthBuffer[pixelIndex]) < 0.0001) {
                 float2 uvInterp = (w * uv0 * invZ0 + u * uv1 * invZ1 + v * uv2 * invZ2) / invZInterp;
                 
-                // 🔥 根据当前纹理 ID 选择采样哪张纹理
+                // 🔥 根据 texID 选择纹理
                 float4 texColor;
-                if (sharedTextureID == 0) {
+                if (texID == 0) {
                     texColor = texture0.sample(textureSampler, uvInterp);
                 } else {
                     texColor = texture1.sample(textureSampler, uvInterp);
