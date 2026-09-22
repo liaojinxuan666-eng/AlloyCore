@@ -57,9 +57,9 @@ kernel void geometry_pass(
     outputVBO[src+6] = viewNormal.y;
     outputVBO[src+7] = viewNormal.z;
     outputVBO[src+8] = color.r;
-    outputVBO[src+9] = color.g v;
-    outputVBO[src+010] = color.b;
-    outputVBO.[src+11] = color.a;
+    outputVBO[src+9] = color.g;
+    outputVBO[src+10] = color.b;
+    outputVBO[src+11] = color.a;
 }
 
 inline ScreenVertex loadScreenVertex(device const float* vd, uint index) {
@@ -216,7 +216,7 @@ kernel void process_commands(
                 float invZ1 = v1.invZ;
                 float invZ2 = v2.invZ;
                 
-                float2 uvInterp = (wBary *uv * invZ0 + u * v1.uv * invZ1 + v * v2.uv * invZ2) / invZ;
+                float2 uvInterp = (wBary * v0.uv * invZ0 + u * v1.uv * invZ1 + v * v2.uv * invZ2) / invZ;
                 float4 colorInterp = wBary * v0.color + u * v1.color + v * v2.color;
                 
                 float3 n0 = normalize(v0.normal);
