@@ -47,16 +47,6 @@ public class AlloyGAL {
         }
     }
     
-    public func drawIndexed(v0: UInt32, v1: UInt32, v2: UInt32, textureID: UInt32) {
-        let indexStart = UInt32(indexData.count)
-        indexData.append(contentsOf: [v0, v1, v2])
-        
-        commandBuffer.append(0x01)
-        commandBuffer.append(indexStart)
-        commandBuffer.append(3)
-        commandBuffer.append(textureID)
-    }
-    
     public func drawIndexedRange(startIndex: UInt32, indexCount: UInt32, textureID: UInt32) {
         commandBuffer.append(0x01)
         commandBuffer.append(startIndex)
@@ -64,14 +54,13 @@ public class AlloyGAL {
         commandBuffer.append(textureID)
     }
     
+    // 🔥 submit 不再传几何数据
     public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture) -> MTLCommandBuffer? {
         return renderer.render(
             drawable: drawable,
             texture0: texture0,
             texture1: texture1,
-            rawCommands: commandBuffer,
-            vertexData: vertexData,
-            indexData: indexData
+            rawCommands: commandBuffer
         )
     }
 }
