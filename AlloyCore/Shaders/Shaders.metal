@@ -6,10 +6,10 @@ constant int TILE_SIZE = 16;
 constant int VERTEX_STRIDE = 12; // position(3) + color(4) + uv(2) + normal(3) = 12 floats
 
 struct Vertex {
-    float3 position;  // 模型空间坐标
+    float3 position;
     float4 color;
     float2 uv;
-    float3 normal;    // 模型空间法线
+    float3 normal;
 };
 
 struct TriangleRef {
@@ -25,16 +25,6 @@ inline Vertex loadVertex(device const float* vd, uint index) {
     v.uv = float2(vd[off+7], vd[off+8]);
     v.normal = float3(vd[off+9], vd[off+10], vd[off+11]);
     return v;
-}
-
-// 4x4 矩阵乘法
-inline float4 mulMatrix(float4x4 m, float4 v) {
-    return float4(
-        dot(m[0], v),
-        dot(m[1], v),
-        dot(m[2], v),
-        dot(m[3], v)
-    );
 }
 
 kernel void process_commands(
@@ -64,7 +54,12 @@ kernel void process_commands(
     threadgroup float4 sharedClearColor;
     threadgroup uint sharedDepthTestEnabled;
     threadgroup uint sharedCullMode;
-    threadgroup float4x4 sharedTransform;
+    
+    // 🔥 修复：用 4 个 float4 列向量存储矩阵
+    threadgroup float4 sharedTransformCol0;
+    threadgroup float4 sharedTransformCol1;
+    threadgroup float4 sharedTransformCol2;
+    threadgroup float4 sharedTransformCol3;
     
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
@@ -73,7 +68,11 @@ kernel void process_commands(
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
         sharedCullMode = 0;
-        sharedTransform = float4x4(1.0); // 单位矩阵
+        // 默认单位矩阵
+        sharedTransformCol0 = float4(1, 0, 0, 0);
+        sharedTransformCol1 = float4(0, 1, 0, 0);
+        sharedTransformCol2 = float4(0, 0, 1, 0);
+        sharedTransformCol3 = float4(0, 0, 0, 1);
     }
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -98,13 +97,11 @@ kernel void process_commands(
             } else if (opcode == 0x04) {
                 i += 3;
             } else if (opcode == 0x06) {
-                // 🔥 读取 4x4 矩阵
-                sharedTransform = float4x4(
-                    float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), as_type<float>(rawCommands[i+4])),
-                    float4(as_type<float>(rawCommands[i+5]), as_type<float>(rawCommands[i+6]), as_type<float>(rawCommands[i+7]), as_type<float>(rawCommands[i+8])),
-                    float4(as_type<float>(rawCommands[i+9]), as_type<float>(rawCommands[i+10]), as_type<float>(rawCommands[i+11]), as_type<float>(rawCommands[i+12])),
-                    float4(as_type<float>(rawCommands[i+13]), as_type<float>(rawCommands[i+14]), as_type<float>(rawCommands[i+15]), as_type<float>(rawCommands[i+16]))
-                );
+                // 🔥 读取 16 个 float，按列填入 4 个列向量
+                sharedTransformCol0 = float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), as_type<float>(rawCommands[i+4]));
+                sharedTransformCol1 = float4(as_type<float>(rawCommands[i+5]), as_type<float>(rawCommands[i+6]), as_type<float>(rawCommands[i+7]), as_type<float>(rawCommands[i+8]));
+                sharedTransformCol2 = float4(as_type<float>(rawCommands[i+9]), as_type<float>(rawCommands[i+10]), as_type<float>(rawCommands[i+11]), as_type<float>(rawCommands[i+12]));
+                sharedTransformCol3 = float4(as_type<float>(rawCommands[i+13]), as_type<float>(rawCommands[i+14]), as_type<float>(rawCommands[i+15]), as_type<float>(rawCommands[i+16]));
                 i += 17;
             } else if (opcode == 0x01) {
                 uint indexStart = rawCommands[i+1];
@@ -118,11 +115,21 @@ kernel void process_commands(
                     uint v1 = indexData[indexStart + t + 1];
                     uint v2 = indexData[indexStart + t + 2];
                     
-                    triList[atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed)].v0 = v0;
-                    triList[atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed)].v1 = v1;
-                    triList[atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed)].v2 = v2;
-                    // 简化处理，纹理ID所有三角形统一
-                    triList[atomic_load_explicit(&triCount, memory_order_relaxed) - 1].texID = texID;
+                    Vertex vert0 = loadVertex(vertexData, v0);
+                    Vertex vert1 = loadVertex(vertexData, v1);
+                    Vertex vert2 = loadVertex(vertexData, v2);
+                    
+                    // 🔥 用模型空间顶点算包围盒（在屏幕空间做剔除才对，但这里简单一点）
+                    // 为了做真实的屏幕空间剔除，我们其实要用矩阵算一遍，但这里为了性能简化
+                    // 直接用 3D 位置粗略判断：反正转完以后顶点位置不同，暂时用简单包围盒
+                    // 简化处理：全部接受
+                    uint idx = atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed);
+                    if (idx < MAX_TILE_TRIANGLES) {
+                        triList[idx].v0 = v0;
+                        triList[idx].v1 = v1;
+                        triList[idx].v2 = v2;
+                        triList[idx].texID = texID;
+                    }
                 }
                 i += 4;
             } else {
@@ -132,39 +139,60 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // 🔥 每个线程从共享内存的 4 列重建本地矩阵
+    float4x4 sharedTransform = float4x4(
+        sharedTransformCol0,
+        sharedTransformCol1,
+        sharedTransformCol2,
+        sharedTransformCol3
+    );
+
     uint finalTriCount = atomic_load_explicit(&triCount, memory_order_relaxed);
     if (finalTriCount > MAX_TILE_TRIANGLES) finalTriCount = MAX_TILE_TRIANGLES;
 
-    // 2. 深度预通道（在 GPU 里做矩阵变换）
+    float w = float(output.get_width());
+    float h = float(output.get_height());
+
+    // 2. 深度预通道
     for (uint t = 0; t < finalTriCount; t++) {
         TriangleRef ref = triList[t];
         Vertex v0 = loadVertex(vertexData, ref.v0);
         Vertex v1 = loadVertex(vertexData, ref.v1);
         Vertex v2 = loadVertex(vertexData, ref.v2);
         
-        // 🔥 在 GPU 里把模型空间坐标投影到屏幕空间
-        float4 clip0 = mulMatrix(sharedTransform, float4(v0.position, 1.0));
-        float4 clip1 = mulMatrix(sharedTransform, float4(v1.position, 1.0));
-        float4 clip2 = mulMatrix(sharedTransform, float4(v2.position, 1.0));
+        // 🔥 在 GPU 里做矩阵变换
+        float4 clip0 = sharedTransform * float4(v0.position, 1.0);
+        float4 clip1 = sharedTransform * float4(v1.position, 1.0);
+        float4 clip2 = sharedTransform * float4(v2.position, 1.0);
+        
+        // 如果 w <= 0，说明在相机后面，直接跳过
+        if (clip0.w <= 0.0 || clip1.w <= 0.0 || clip2.w <= 0.0) continue;
         
         float2 p0 = clip0.xy / clip0.w;
         float2 p1 = clip1.xy / clip1.w;
         float2 p2 = clip2.xy / clip2.w;
         
-        // 转换到屏幕坐标
-        float w = float(output.get_width());
-        float h = float(output.get_height());
-        float2 screen0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
-        float2 screen1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
-        float2 screen2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
+        // NDC -> 屏幕
+        float2 s0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
+        float2 s1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
+        float2 s2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
         
-        float cross2D = (screen1.x - screen0.x) * (screen2.y - screen0.y) - (screen1.y - screen0.y) * (screen2.x - screen0.x);
-        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
+        // 包围盒剔除
+        float minX = min(min(s0.x, s1.x), s2.x);
+        float maxX = max(max(s0.x, s1.x), s2.x);
+        float minY = min(min(s0.y, s1.y), s2.y);
+        float maxY = max(max(s0.y, s1.y), s2.y);
         
-        float2 e0 = screen1 - screen0;
-        float2 e1 = screen2 - screen0;
-        float2 e2 = pixel_pos - screen0;
+        if (maxX < float(tileMin.x) || minX > float(tileMax.x) ||
+            maxY < float(tileMin.y) || minY > float(tileMax.y)) continue;
+        
+        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
+        
+        float2 e0 = s1 - s0;
+        float2 e1 = s2 - s0;
+        float2 e2 = pixel_pos - s0;
         
         float d00 = dot(e0, e0);
         float d01 = dot(e0, e1);
@@ -178,7 +206,10 @@ kernel void process_commands(
         float wBary = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
-            float invZ = wBary * (1.0/clip0.w) + u * (1.0/clip1.w) + v * (1.0/clip2.w);
+            float invZ0 = 1.0 / clip0.w;
+            float invZ1 = 1.0 / clip1.w;
+            float invZ2 = 1.0 / clip2.w;
+            float invZ = wBary * invZ0 + u * invZ1 + v * invZ2;
             if (sharedDepthTestEnabled == 1) {
                 if (invZ > tileDepthBuffer[pixelIndex]) {
                     tileDepthBuffer[pixelIndex] = invZ;
@@ -197,27 +228,35 @@ kernel void process_commands(
         Vertex v1 = loadVertex(vertexData, ref.v1);
         Vertex v2 = loadVertex(vertexData, ref.v2);
         
-        float4 clip0 = mulMatrix(sharedTransform, float4(v0.position, 1.0));
-        float4 clip1 = mulMatrix(sharedTransform, float4(v1.position, 1.0));
-        float4 clip2 = mulMatrix(sharedTransform, float4(v2.position, 1.0));
+        float4 clip0 = sharedTransform * float4(v0.position, 1.0);
+        float4 clip1 = sharedTransform * float4(v1.position, 1.0);
+        float4 clip2 = sharedTransform * float4(v2.position, 1.0);
+        
+        if (clip0.w <= 0.0 || clip1.w <= 0.0 || clip2.w <= 0.0) continue;
         
         float2 p0 = clip0.xy / clip0.w;
         float2 p1 = clip1.xy / clip1.w;
         float2 p2 = clip2.xy / clip2.w;
         
-        float w = float(output.get_width());
-        float h = float(output.get_height());
-        float2 screen0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
-        float2 screen1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
-        float2 screen2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
+        float2 s0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
+        float2 s1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
+        float2 s2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
         
-        float cross2D = (screen1.x - screen0.x) * (screen2.y - screen0.y) - (screen1.y - screen0.y) * (screen2.x - screen0.x);
-        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
+        float minX = min(min(s0.x, s1.x), s2.x);
+        float maxX = max(max(s0.x, s1.x), s2.x);
+        float minY = min(min(s0.y, s1.y), s2.y);
+        float maxY = max(max(s0.y, s1.y), s2.y);
         
-        float2 e0 = screen1 - screen0;
-        float2 e1 = screen2 - screen0;
-        float2 e2 = pixel_pos - screen0;
+        if (maxX < float(tileMin.x) || minX > float(tileMax.x) ||
+            maxY < float(tileMin.y) || minY > float(tileMax.y)) continue;
+        
+        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
+        
+        float2 e0 = s1 - s0;
+        float2 e1 = s2 - s0;
+        float2 e2 = pixel_pos - s0;
         
         float d00 = dot(e0, e0);
         float d01 = dot(e0, e1);
@@ -245,10 +284,10 @@ kernel void process_commands(
                 float2 uvInterp = (wBary * v0.uv * invZ0 + u * v1.uv * invZ1 + v * v2.uv * invZ2) / invZ;
                 float4 colorInterp = wBary * v0.color + u * v1.color + v * v2.color;
                 
-                // 法线变换（忽略平移）
-                float3 n0 = normalize(mulMatrix(sharedTransform, float4(v0.normal, 0.0)).xyz);
-                float3 n1 = normalize(mulMatrix(sharedTransform, float4(v1.normal, 0.0)).xyz);
-                float3 n2 = normalize(mulMatrix(sharedTransform, float4(v2.normal, 0.0)).xyz);
+                // 法线变换（忽略平移，仅用旋转部分）
+                float3 n0 = normalize((sharedTransform * float4(v0.normal, 0.0)).xyz);
+                float3 n1 = normalize((sharedTransform * float4(v1.normal, 0.0)).xyz);
+                float3 n2 = normalize((sharedTransform * float4(v2.normal, 0.0)).xyz);
                 float3 normal = normalize(wBary * n0 + u * n1 + v * n2);
                 
                 float4 texColor;
