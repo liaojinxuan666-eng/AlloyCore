@@ -1,16 +1,19 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// 🔥 修复：从 128 提升到 1024，防止球体三角形溢出
 constant int MAX_TILE_TRIANGLES = 128;
 constant int TILE_SIZE = 16;
-constant int VERTEX_STRIDE = 12;
 
-struct Vertex {
-    float3 position;
-    float4 color;
+// 顶点布局（输入/输出都是 12 个 float）：
+// 输入 (模型空间)：position(3) + color(4) + uv(2) + normal(3)
+// 输出 (屏幕空间)：screenPos(2) + uv(2) + invZ(1) + normal(3) + color(4)
+
+struct ScreenVertex {
+    float2 position;
     float2 uv;
+    float invZ;
     float3 normal;
+    float4 color;
 };
 
 struct TriangleRef {
@@ -18,20 +21,67 @@ struct TriangleRef {
     uint texID;
 };
 
-inline Vertex loadVertex(device const float* vd, uint index) {
-    uint off = index * VERTEX_STRIDE;
-    Vertex v;
-    v.position = float3(vd[off], vd[off+1], vd[off+2]);
-    v.color = float4(vd[off+3], vd[off+4], vd[off+5], vd[off+6]);
-    v.uv = float2(vd[off+7], vd[off+8]);
-    v.normal = float3(vd[off+9], vd[off+10], vd[off+11]);
+// 🔥 新增：几何处理，只跑一次
+kernel void geometry_pass(
+    device const float* inputVBO [[buffer(0)]],
+    device float* outputVBO [[buffer(1)]],
+    constant uint& vertexCount [[buffer(2)]],
+    constant float4x4& transform [[buffer(3)]],
+    constant float2& screenSize [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= vertexCount) return;
+    
+    uint src = gid * 12;
+    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
+    float4 color = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
+    float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
+    float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
+    
+    float4 clip = transform * float4(pos, 1.0);
+    
+    float2 screenPos;
+    float invZ;
+    if (clip.w <= 0.0001) {
+        screenPos = float2(-10000.0, -10000.0);
+        invZ = -1e9;
+    } else {
+        float2 ndc = clip.xy / clip.w;
+        screenPos = float2((ndc.x + 1.0) * 0.5 * screenSize.x, (1.0 - ndc.y) * 0.5 * screenSize.y);
+        invZ = 1.0 / clip.w;
+    }
+    
+    float3 viewNormal = (transform * float4(nrm, 0.0)).xyz;
+    
+    outputVBO[src+0] = screenPos.x;
+    outputVBO[src+1] = screenPos.y;
+    outputVBO[src+2] = uv.x;
+    outputVBO[src+3] = uv.y;
+    outputVBO[src+4] = invZ;
+    outputVBO[src+5] = viewNormal.x;
+    outputVBO[src+6] = viewNormal.y;
+    outputVBO[src+7] = viewNormal.z;
+    outputVBO[src+8] = color.r;
+    outputVBO[src+9] = color.g;
+    outputVBO[src+10] = color.b;
+    outputVBO[src+11] = color.a;
+}
+
+inline ScreenVertex loadScreenVertex(device const float* vd, uint index) {
+    uint off = index * 12;
+    ScreenVertex v;
+    v.position = float2(vd[off], vd[off+1]);
+    v.uv = float2(vd[off+2], vd[off+3]);
+    v.invZ = vd[off+4];
+    v.normal = float3(vd[off+5], vd[off+6], vd[off+7]);
+    v.color = float4(vd[off+8], vd[off+9], vd[off+10], vd[off+11]);
     return v;
 }
 
 kernel void process_commands(
     device const uint* rawCommands [[buffer(0)]],
     constant uint& commandCount [[buffer(1)]],
-    device const float* vertexData [[buffer(2)]],
+    device const float* screenVertexData [[buffer(2)]],
     device const uint* indexData [[buffer(3)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> texture0 [[texture(1)]],
@@ -56,11 +106,6 @@ kernel void process_commands(
     threadgroup uint sharedDepthTestEnabled;
     threadgroup uint sharedCullMode;
     
-    threadgroup float4 sharedTransformCol0;
-    threadgroup float4 sharedTransformCol1;
-    threadgroup float4 sharedTransformCol2;
-    threadgroup float4 sharedTransformCol3;
-    
     uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     if (localId.x == 0 && localId.y == 0) {
@@ -68,15 +113,11 @@ kernel void process_commands(
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
         sharedCullMode = 0;
-        sharedTransformCol0 = float4(1, 0, 0, 0);
-        sharedTransformCol1 = float4(0, 1, 0, 0);
-        sharedTransformCol2 = float4(0, 0, 1, 0);
-        sharedTransformCol3 = float4(0, 0, 0, 1);
     }
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 1. 预解析
+    // 预解析：收集三角形 + 读取状态
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount) {
@@ -96,10 +137,7 @@ kernel void process_commands(
             } else if (opcode == 0x04) {
                 i += 3;
             } else if (opcode == 0x06) {
-                sharedTransformCol0 = float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), as_type<float>(rawCommands[i+4]));
-                sharedTransformCol1 = float4(as_type<float>(rawCommands[i+5]), as_type<float>(rawCommands[i+6]), as_type<float>(rawCommands[i+7]), as_type<float>(rawCommands[i+8]));
-                sharedTransformCol2 = float4(as_type<float>(rawCommands[i+9]), as_type<float>(rawCommands[i+10]), as_type<float>(rawCommands[i+11]), as_type<float>(rawCommands[i+12]));
-                sharedTransformCol3 = float4(as_type<float>(rawCommands[i+13]), as_type<float>(rawCommands[i+14]), as_type<float>(rawCommands[i+15]), as_type<float>(rawCommands[i+16]));
+                // 矩阵已经在 geometry_pass 用过了，这里跳过
                 i += 17;
             } else if (opcode == 0x01) {
                 uint indexStart = rawCommands[i+1];
@@ -129,39 +167,22 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    float4x4 sharedTransform = float4x4(
-        sharedTransformCol0,
-        sharedTransformCol1,
-        sharedTransformCol2,
-        sharedTransformCol3
-    );
-
     uint finalTriCount = atomic_load_explicit(&triCount, memory_order_relaxed);
     if (finalTriCount > MAX_TILE_TRIANGLES) finalTriCount = MAX_TILE_TRIANGLES;
 
     float w = float(output.get_width());
     float h = float(output.get_height());
 
-    // 2. 深度预通道
+    // 深度预通道
     for (uint t = 0; t < finalTriCount; t++) {
         TriangleRef ref = triList[t];
-        Vertex v0 = loadVertex(vertexData, ref.v0);
-        Vertex v1 = loadVertex(vertexData, ref.v1);
-        Vertex v2 = loadVertex(vertexData, ref.v2);
+        ScreenVertex v0 = loadScreenVertex(screenVertexData, ref.v0);
+        ScreenVertex v1 = loadScreenVertex(screenVertexData, ref.v1);
+        ScreenVertex v2 = loadScreenVertex(screenVertexData, ref.v2);
         
-        float4 clip0 = sharedTransform * float4(v0.position, 1.0);
-        float4 clip1 = sharedTransform * float4(v1.position, 1.0);
-        float4 clip2 = sharedTransform * float4(v2.position, 1.0);
-        
-        if (clip0.w <= 0.0 || clip1.w <= 0.0 || clip2.w <= 0.0) continue;
-        
-        float2 p0 = clip0.xy / clip0.w;
-        float2 p1 = clip1.xy / clip1.w;
-        float2 p2 = clip2.xy / clip2.w;
-        
-        float2 s0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
-        float2 s1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
-        float2 s2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
+        float2 s0 = v0.position;
+        float2 s1 = v1.position;
+        float2 s2 = v2.position;
         
         float minX = min(min(s0.x, s1.x), s2.x);
         float maxX = max(max(s0.x, s1.x), s2.x);
@@ -191,12 +212,12 @@ kernel void process_commands(
         float wBary = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
-            float invZ0 = 1.0 / clip0.w;
-            float invZ1 = 1.0 / clip1.w;
-            float invZ2 = 1.0 / clip2.w;
-            float invZ = wBary * invZ0 + u * invZ1 + v * invZ2;
-            if (sharedDepthTestEnabled == 1) {
-                if (invZ > tileDepthBuffer[pixelIndex]) {
+            float invZ);
+ = wBary * v0.in               vZ + u * v1.inv }
+Z + v * v2.invZ                
+;
+            if (sharedDepthTestEnabled ==                1) {
+                if (invZ > tile floatDepthBuffer[pixelIndex]) {
                     tileDepthBuffer[pixelIndex] = invZ;
                 }
             }
@@ -204,28 +225,18 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 3. 着色通道
+    // 着色通道
     float4 finalColor = sharedClearColor;
     
     for (uint t = 0; t < finalTriCount; t++) {
         TriangleRef ref = triList[t];
-        Vertex v0 = loadVertex(vertexData, ref.v0);
-        Vertex v1 = loadVertex(vertexData, ref.v1);
-        Vertex v2 = loadVertex(vertexData, ref.v2);
+        ScreenVertex v0 = loadScreenVertex(screenVertexData, ref.v0);
+        ScreenVertex v1 = loadScreenVertex(screenVertexData, ref.v1);
+        ScreenVertex v2 = loadScreenVertex(screenVertexData, ref.v2);
         
-        float4 clip0 = sharedTransform * float4(v0.position, 1.0);
-        float4 clip1 = sharedTransform * float4(v1.position, 1.0);
-        float4 clip2 = sharedTransform * float4(v2.position, 1.0);
-        
-        if (clip0.w <= 0.0 || clip1.w <= 0.0 || clip2.w <= 0.0) continue;
-        
-        float2 p0 = clip0.xy / clip0.w;
-        float2 p1 = clip1.xy / clip1.w;
-        float2 p2 = clip2.xy / clip2.w;
-        
-        float2 s0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
-        float2 s1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
-        float2 s2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
+        float2 s0 = v0.position;
+        float2 s1 = v1.position;
+        float2 s2 = v2.position;
         
         float minX = min(min(s0.x, s1.x), s2.x);
         float maxX = max(max(s0.x, s1.x), s2.x);
@@ -255,10 +266,7 @@ kernel void process_commands(
         float wBary = 1.0 - u - v;
         
         if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
-            float invZ0 = 1.0 / clip0.w;
-            float invZ1 = 1.0 / clip1.w;
-            float invZ2 = 1.0 / clip2.w;
-            float invZ = wBary * invZ0 + u * invZ1 + v * invZ2;
+            float invZ = wBary * v0.invZ + u * v1.invZ + v * v2.invZ;
             
             bool shouldDraw = true;
             if (sharedDepthTestEnabled == 1) {
@@ -266,22 +274,23 @@ kernel void process_commands(
             }
             
             if (shouldDraw) {
+                float invZ0 = v0.invZ;
+                float invZ1 = v1.invZ;
+                float invZ2 = v2.invZ;
+                
                 float2 uvInterp = (wBary * v0.uv * invZ0 + u * v1.uv * invZ1 + v * v2.uv * invZ2) / invZ;
                 float4 colorInterp = wBary * v0.color + u * v1.color + v * v2.color;
                 
-                float3 n0 = normalize((sharedTransform * float4(v0.normal, 0.0)).xyz);
-                float3 n1 = normalize((sharedTransform * float4(v1.normal, 0.0)).xyz);
-                float3 n2 = normalize((sharedTransform * float4(v2.normal, 0.0)).xyz);
+                float3 n0 = normalize(v0.normal);
+                float3 n1 = normalize(v1.normal);
+                float3 n2 = normalize(v2.normal);
                 float3 normal = normalize(wBary * n0 + u * n1 + v * n2);
                 
                 float4 texColor;
                 if (ref.texID == 0) {
                     texColor = texture0.sample(textureSampler, uvInterp);
                 } else {
-                    texColor = texture1.sample(textureSampler, uvInterp);
-                }
-                
-                float intensity = max(dot(normal, lightDir), 0.2);
+                    texColor = texture1.sample(textureSampler, uvInterp intensity = max(dot(normal, lightDir), 0.2);
                 finalColor = colorInterp * texColor * intensity;
             }
         }
