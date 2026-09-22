@@ -93,8 +93,10 @@ struct MetalView: UIViewRepresentable {
             let ax = time * 0.6
             let ay = time * 0.8
             
-            let cosAY = cos(ay); let sinAY = sin(ay)
-            let cosAX = cos(ax); let sinAX = sin(ax)
+            let cosAY = cos(ay)
+            let sinAY = sin(ay)
+            let cosAX = cos(ax)
+            let sinAX = sin(ax)
             
             let rotY = simd_float4x4(
                 SIMD4<Float>(cosAY, 0, -sinAY, 0),
@@ -109,17 +111,15 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, 0, 1)
             )
             
-            let fov: Float = 800.0
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
-            
-            // 🔥 修复：f 的计算改为 45 度视场角，让球体大一点
             let f = 1.0 / tan(Float.pi / 8.0)
+            
             let persp = simd_float4x4(
-                SIMD4<hereFloat>(f / aspect, Ind0, 0, 0),
-                SIMicesD4<Float>(0, f,.count 0, 0),
-),                SIMD4<Float>(0, 0, (z textureFar + zNear) / (zNear - zFar), -1),
+                SIMD4<Float>(f / aspect, 0, 0, 0),
+                SIMD4<Float>(0, f, 0, 0),
+                SIMD4<Float>(0, 0, (zFar + zNear) / (zNear - zFar), -1),
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
@@ -139,7 +139,6 @@ struct MetalView: UIViewRepresentable {
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            // 🔥 修复：暂时关闭背面剔除，先看看球体是否能正常出现
             pso.cullMode = 0
             gal.bindPipeline(pso)
             
@@ -159,7 +158,7 @@ struct MetalView: UIViewRepresentable {
             
             gal.vertexData = finalVertexData
             gal.indexData = sphereIndices
-            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(spID: 0)
+            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(sphereIndices.count), textureID: 0)
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
