@@ -8,6 +8,10 @@ public class AlloyRenderer {
     var pipelineState: MTLComputePipelineState!
     let tileSize: Int = 16
     
+    // 🔥 缓存几何数据，只上传一次
+    var cachedVertexBuffer: MTLBuffer?
+    var cachedIndexBuffer: MTLBuffer?
+    
     public init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else { return nil }
@@ -29,28 +33,33 @@ public class AlloyRenderer {
         }
     }
     
+    // 🔥 上传几何数据（初始化时调用一次）
+    public func uploadGeometry(vertexData: [Float], indexData: [UInt32]) {
+        cachedVertexBuffer = device.makeBuffer(bytes: vertexData,
+                                               length: vertexData.count * MemoryLayout<Float>.size,
+                                               options: .storageModeShared)
+        cachedIndexBuffer = device.makeBuffer(bytes: indexData,
+                                              length: indexData.count * MemoryLayout<UInt32>.size,
+                                              options: .storageModeShared)
+    }
+    
+    // 🔥 每帧只传指令流（含矩阵），VBO/IBO 复用
     public func render(
         drawable: CAMetalDrawable,
         texture0: MTLTexture,
         texture1: MTLTexture,
-        rawCommands: [UInt32],
-        vertexData: [Float],
-        indexData: [UInt32]
+        rawCommands: [UInt32]
     ) -> MTLCommandBuffer? {
-        let outputTexture = drawable.texture
-        guard !rawCommands.isEmpty else { return nil }
+        guard let vertexBuffer = cachedVertexBuffer,
+              let indexBuffer = cachedIndexBuffer,
+              !rawCommands.isEmpty else { return nil }
         
+        let outputTexture = drawable.texture
+        
+        // 指令流每帧都变，需要重新上传
         let commandBuffer = device.makeBuffer(bytes: rawCommands,
                                               length: rawCommands.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
-        
-        let vertexBuffer = device.makeBuffer(bytes: vertexData,
-                                             length: vertexData.count * MemoryLayout<Float>.size,
-                                             options: .storageModeShared)
-        
-        let indexBuffer = device.makeBuffer(bytes: indexData,
-                                            length: indexData.count * MemoryLayout<UInt32>.size,
-                                            options: .storageModeShared)
         
         var commandCount = UInt32(rawCommands.count)
         
