@@ -45,38 +45,63 @@ struct MetalView: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func buildCubeGeometry() {
-            let faces: [(normal: SIMD3<Float>, verts: [SIMD3<Float>])] = [
-                (SIMD3<Float>(0, 0, -1), [SIMD3<Float>(-1, -1, -1), SIMD3<Float>(1, -1, -1), SIMD3<Float>(1, 1, -1), SIMD3<Float>(-1, 1, -1)]),
-                (SIMD3<Float>(1, 0, 0),  [SIMD3<Float>(1, -1, -1), SIMD3<Float>(1, -1, 1), SIMD3<Float>(1, 1, 1), SIMD3<Float>(1, 1, -1)]),
-                (SIMD3<Float>(0, 0, 1),  [SIMD3<Float>(1, -1, 1), SIMD3<Float>(-1, -1, 1), SIMD3<Float>(-1, 1, 1), SIMD3<Float>(1, 1, 1)]),
-                (SIMD3<Float>(-1, 0, 0), [SIMD3<Float>(-1, -1, 1), SIMD3<Float>(-1, -1, -1), SIMD3<Float>(-1, 1, -1), SIMD3<Float>(-1, 1, 1)]),
-                (SIMD3<Float>(0, 1, 0),  [SIMD3<Float>(-1, 1, -1), SIMD3<Float>(1, 1, -1), SIMD3<Float>(1, 1, 1), SIMD3<Float>(-1, 1, 1)]),
-                (SIMD3<Float>(0, -1, 0), [SIMD3<Float>(-1, -1, 1), SIMD3<Float>(1, -1, 1), SIMD3<Float>(1, -1, -1), SIMD3<Float>(-1, -1, -1)])
+            vertexData.removeAll()
+            indexData.removeAll()
+            
+            // 每个小立方体的边长
+            let s: Float = 0.15
+            // 网格排布：5x5x5 = 125 个立方体 = 1500 个三角形
+            let gridN = 5
+            let spacing: Float = 2.0 / Float(gridN)
+            
+            let baseVerts: [SIMD3<Float>] = [
+                SIMD3<Float>(-s, -s, -s), SIMD3<Float>(s, -s, -s), SIMD3<Float>(s, s, -s), SIMD3<Float>(-s, s, -s),
+                SIMD3<Float>(-s, -s, s),  SIMD3<Float>(s, -s, s),  SIMD3<Float>(s, s, s),  SIMD3<Float>(-s, s, s)
+            ]
+            
+            let faceIdxList: [[Int]] = [
+                [0, 1, 2, 3], [1, 5, 6, 2], [5, 4, 7, 6],
+                [4, 0, 3, 7], [3, 2, 6, 7], [4, 5, 1, 0]
+            ]
+            
+            let faceNormals: [SIMD3<Float>] = [
+                SIMD3<Float>(0, 0, -1), SIMD3<Float>(1, 0, 0),
+                SIMD3<Float>(0, 0, 1),  SIMD3<Float>(-1, 0, 0),
+                SIMD3<Float>(0, 1, 0),  SIMD3<Float>(0, -1, 0)
             ]
             
             let uvs: [SIMD2<Float>] = [
                 SIMD2<Float>(0, 0), SIMD2<Float>(1, 0), SIMD2<Float>(1, 1), SIMD2<Float>(0, 1)
             ]
             
-            vertexData.removeAll()
-            indexData.removeAll()
-            
-            for face in faces {
-                let baseIndex = UInt32(vertexData.count / 12)
-                
-                for k in 0..<4 {
-                    let p = face.verts[k]
-                    let n = face.normal
-                    vertexData.append(contentsOf: [
-                        p.x, p.y, p.z,
-                        1, 1, 1, 1,
-                        uvs[k].x, uvs[k].y,
-                        n.x, n.y, n.z
-                    ])
+            for ix in 0..<gridN {
+                for iy in 0..<gridN {
+                    for iz in 0..<gridN {
+                        let offset = SIMD3<Float>(
+                            Float(ix) * spacing - 1.0 + spacing * 0.5,
+                            Float(iy) * spacing - 1.0 + spacing * 0.5,
+                            Float(iz) * spacing - 1.0 + spacing * 0.5
+                        )
+                        
+                        for (faceIdx, indices) in faceIdxList.enumerated() {
+                            let n = faceNormals[faceIdx]
+                            let baseIndex = UInt32(vertexData.count / 12)
+                            
+                            for k in 0..<4 {
+                                let p = baseVerts[indices[k]] + offset
+                                vertexData.append(contentsOf: [
+                                    p.x, p.y, p.z,
+                                    1, 1, 1, 1,
+                                    uvs[k].x, uvs[k].y,
+                                    n.x, n.y, n.z
+                                ])
+                            }
+                            
+                            indexData.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
+                            indexData.append(contentsOf: [baseIndex, baseIndex + 2, baseIndex + 3])
+                        }
+                    }
                 }
-                
-                indexData.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
-                indexData.append(contentsOf: [baseIndex, baseIndex + 2, baseIndex + 3])
             }
         }
         
@@ -116,7 +141,7 @@ struct MetalView: UIViewRepresentable {
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
-            // 🔥 用 45 度 fov，让立方体尺寸更温和
+            // 45 度垂直视场角
             let fovY: Float = 45.0 * Float.pi / 180.0
             let f = 1.0 / tan(fovY / 2.0)
             
@@ -127,15 +152,15 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
-            // 🔥 把立方体推到 z = -6，摄像机离它更远
+            // 把场景推到 z = -6
             let translation = simd_float4x4(
                 SIMD4<Float>(1, 0, 0, 0),
                 SIMD4<Float>(0, 1, 0, 0),
-                SIMD4<Float>(0, 0, 1, 0),
+                SIMD4<pFloat>(0, 0, 1, 0),
                 SIMD4<Float>(0, 0, -6, 1)
             )
             
-            let finalMatrix = persp * translation * rotX * rotY
+            let finalMatrix = pers * translation * rotX * rotY
             
             var matrixArray: [Float] = []
             for col in 0..<4 {
@@ -150,7 +175,6 @@ struct MetalView: UIViewRepresentable {
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            // 🔥 暂时关掉背面剔除，先让立方体正常显示
             pso.cullMode = 0
             gal.bindPipeline(pso)
             
