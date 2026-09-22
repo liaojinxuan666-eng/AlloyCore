@@ -39,7 +39,6 @@ public class AlloyGAL {
         commandBuffer.append(Float(height).bitPattern)
     }
     
-    // 🔥 新增：发送 4x4 变换矩阵（1 opcode + 16 floats = 17 uint）
     public func setTransform(matrix: [Float]) {
         guard matrix.count == 16 else { return }
         commandBuffer.append(0x06)
