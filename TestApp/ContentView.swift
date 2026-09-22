@@ -48,9 +48,7 @@ struct MetalView: UIViewRepresentable {
             vertexData.removeAll()
             indexData.removeAll()
             
-            // 每个小立方体的边长
             let s: Float = 0.15
-            // 网格排布：5x5x5 = 125 个立方体 = 1500 个三角形
             let gridN = 5
             let spacing: Float = 2.0 / Float(gridN)
             
@@ -103,6 +101,8 @@ struct MetalView: UIViewRepresentable {
                     }
                 }
             }
+            
+            PerformanceMonitor.shared.setTriangleCount(indexData.count / 3)
         }
         
         func uploadGeometry(to renderer: AlloyRenderer) {
@@ -141,7 +141,6 @@ struct MetalView: UIViewRepresentable {
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
-            // 45 度垂直视场角
             let fovY: Float = 45.0 * Float.pi / 180.0
             let f = 1.0 / tan(fovY / 2.0)
             
@@ -152,15 +151,14 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
-            // 把场景推到 z = -6
             let translation = simd_float4x4(
                 SIMD4<Float>(1, 0, 0, 0),
                 SIMD4<Float>(0, 1, 0, 0),
-                SIMD4<pFloat>(0, 0, 1, 0),
+                SIMD4<Float>(0, 0, 1, 0),
                 SIMD4<Float>(0, 0, -6, 1)
             )
             
-            let finalMatrix = pers * translation * rotX * rotY
+            let finalMatrix = persp * translation * rotX * rotY
             
             var matrixArray: [Float] = []
             for col in 0..<4 {
@@ -183,15 +181,46 @@ struct MetalView: UIViewRepresentable {
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
+                cmdBuffer.addCompletedHandler { buffer in
+                    let gpuTime = buffer.gpuEndTime - buffer.gpuStartTime
+                    PerformanceMonitor.shared.markFrame(gpuTime: gpuTime)
+                }
                 cmdBuffer.commit()
             }
         }
     }
 }
 
+struct PerformanceHUD: View {
+    @StateObject var perf = PerformanceMonitor.shared
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(format: "FPS: %.1f", perf.fps))
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+            Text(String(format: "Frame: %.2f ms", perf.frameTimeMs))
+                .font(.system(size: 12, design: .monospaced))
+            Text(String(format: "GPU: %.2f ms", perf.gpuTimeMs))
+                .font(.system(size: 12, design: .monospaced))
+            Text("Tris: \(perf.triangleCount)")
+                .font(.system(size: 12, design: .monospaced))
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.6))
+        .foregroundColor(.green)
+        .cornerRadius(8)
+    }
+}
+
 struct ContentView: View {
     var body: some View {
-        MetalView()
-            .ignoresSafeArea()
+        ZStack(alignment: .topLeading) {
+            MetalView()
+                .ignoresSafeArea()
+            
+            PerformanceHUD()
+                .padding(.top, 60)
+                .padding(.leading, 16)
+        }
     }
 }
