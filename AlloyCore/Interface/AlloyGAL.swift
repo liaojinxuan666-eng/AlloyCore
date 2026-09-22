@@ -39,7 +39,15 @@ public class AlloyGAL {
         commandBuffer.append(Float(height).bitPattern)
     }
     
-    // 画一个三角形
+    // 🔥 新增：发送 4x4 变换矩阵（1 opcode + 16 floats = 17 uint）
+    public func setTransform(matrix: [Float]) {
+        guard matrix.count == 16 else { return }
+        commandBuffer.append(0x06)
+        for f in matrix {
+            commandBuffer.append(f.bitPattern)
+        }
+    }
+    
     public func drawIndexed(v0: UInt32, v1: UInt32, v2: UInt32, textureID: UInt32) {
         let indexStart = UInt32(indexData.count)
         indexData.append(contentsOf: [v0, v1, v2])
@@ -50,7 +58,6 @@ public class AlloyGAL {
         commandBuffer.append(textureID)
     }
     
-    // 一次性绘制大段索引（比如球体）
     public func drawIndexedRange(startIndex: UInt32, indexCount: UInt32, textureID: UInt32) {
         commandBuffer.append(0x01)
         commandBuffer.append(startIndex)
