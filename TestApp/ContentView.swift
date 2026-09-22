@@ -38,7 +38,7 @@ struct MetalView: UIViewRepresentable {
         var texture1: MTLTexture?
         var time: Float = 0.0
         
-        var sphereVertices: [SIMD3<Float>] = []
+        var sphereVertices: [SIMD3<Float>] = [] // 模型空间
         var sphereUVs: [SIMD2<Float>] = []
         var sphereNormals: [SIMD3<Float>] = []
         var sphereIndices: [UInt32] = []
@@ -46,9 +46,9 @@ struct MetalView: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func generateSphere() {
-            // 🔥 降低分辨率：从 20x20 降到 10x10（三角形从 800 降到 200）
-            let latBands = 10
-            let lonBands = 10
+            // 🔥 直接把顶点分辨率拉满！20x20 = 800 个三角形，CPU 也不再是瓶颈
+            let latBands = 20
+            let lonBands = 20
             
             for lat in 0...latBands {
                 let theta = Float(lat) * Float.pi / Float(latBands)
@@ -94,26 +94,52 @@ struct MetalView: UIViewRepresentable {
             let ax = time * 0.6
             let ay = time * 0.8
             
-            // 🔥 优化：把三角函数提取到循环外，每个顶点只做乘法
-            let cosAY = cos(ay)
-            let sinAY = sin(ay)
-            let cosAX = cos(ax)
-            let sinAX = sin(ax)
+            // 🔥 每帧只算 1 次三角函数，生成 4x4 矩阵
+            let cosAY = cos(ay); let sinAY = sin(ay)
+            let cosAX = cos(ax); let sinAX = sin(ax)
             
-            func rotate(_ v: SIMD3<Float>) -> SIMD3<Float> {
-                let x1 = v.x * cosAY - v.z * sinAY
-                let z1 = v.x * sinAY + v.z * cosAY
-                let y2 = v.y * cosAX - z1 * sinAX
-                let z2 = v.y * sinAX + z1 * cosAX
-                return SIMD3<Float>(x1, y2, z2)
-            }
+            // 构建旋转矩阵（Y 轴旋转 * X 轴旋转）
+            let rotY = simd_float4x4(
+                SIMD4<Float>(cosAY, 0, -sinAY, 0),
+                SIMD4<Float>(0, 1, 0, 0),
+                SIMD4<Float>(sinAY, 0, cosAY, 0),
+                SIMD4<Float>(0, 0, 0, 1)
+            )
+            let rotX = simd_float4x4(
+                SIMD4<Float>(1, 0, 0, 0),
+                SIMD4<Float>(0, cosAX, sinAX, 0),
+                SIMD4<Float>(0, -sinAX, cosAX, 0),
+                SIMD4<Float>(0, 0, 0, 1)
+            )
+            // 注意：这里简化为旋转矩阵，真正的透视投影矩阵我们后续在 Shader 里做
+            // 但为了保留透视效果，我们可以手动构造一个简单的透视矩阵。
+            // 这里为了演示，直接传旋转矩阵，Shader 里简化处理。
             
-            func project(_ v: SIMD3<Float>) -> (SIMD2<Float>, Float) {
-                let fov: Float = 800.0
-                let z = max(v.z + 4.0, 0.1)
-                let x = v.x * fov / z + width / 2
-                let y = -v.y * fov / z + height / 2
-                return (SIMD2<Float>(x, y), 1.0 / z)
+            // 为简单起见，在 CPU 生成一个包含透视投影的矩阵
+            let fov: Float = 800.0
+            let zNear: Float = 0.1
+            let zFar: Float = 100.0
+            let aspect = width / height
+            
+            // 透视矩阵 (OpenGL 风格，NDC z 范围 [-1, 1])
+            let f = 1.0 / tan(Float.pi / 4.0) // 90度视场角的一半
+            let persp = simd_float4x4(
+                SIMD4<Float>(f / aspect, 0, 0, 0),
+                SIMD4<Float>(0, f, 0, 0),
+                SIMD4<Float>(0, 0, (zFar + zNear) / (zNear - zFar), -1),
+                SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
+            )
+            
+            // 最后将矩阵压扁成 16 个 float 发给引擎
+            var finalMatrix = persp * rotX * rotY
+            // 扩大一点，让它看起来近一点
+            finalMatrix.columns.3.z = -4.0
+            
+            var matrixArray: [Float] = []
+            for col in 0..<4 {
+                for row in 0..<4 {
+                    matrixArray.append(finalMatrix[col][row])
+                }
             }
             
             let gal = AlloyGAL()
@@ -125,20 +151,17 @@ struct MetalView: UIViewRepresentable {
             pso.cullMode = 1
             gal.bindPipeline(pso)
             
-            var finalVertexData: [Float] = []
-            finalVertexData.reserveCapacity(sphereVertices.count * 12)
+            // 🔥 发送矩阵指令
+            gal.setTransform(matrix: matrixArray)
             
+            // 🔥 顶点数据不再做任何 CPU 运算，原样打包
+            var finalVertexData: [Float] = []
             for i in 0..<sphereVertices.count {
-                let worldPos = rotate(sphereVertices[i])
-                let (screenPos, invZ) = project(worldPos)
-                let n = rotate(sphereNormals[i])
-                
                 finalVertexData.append(contentsOf: [
-                    screenPos.x, screenPos.y,
-                    1, 1, 1, 1,
-                    sphereUVs[i].x, sphereUVs[i].y,
-                    invZ,
-                    n.x, n.y, n.z
+                    sphereVertices[i].x, sphereVertices[i].y, sphereVertices[i].z, // 位置
+                    1, 1, 1, 1,                                                   // 颜色
+                    sphereUVs[i].x, sphereUVs[i].y,                               // UV
+                    sphereNormals[i].x, sphereNormals[i].y, sphereNormals[i].z    // 法线
                 ])
             }
             
