@@ -116,7 +116,9 @@ struct MetalView: UIViewRepresentable {
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
-            let f = 1.0 / tan(Float.pi / 8.0)
+            // 60 度垂直视场角
+            let fovY: Float = 60.0 * Float.pi / 180.0
+            let f = 1.0 / tan(fovY / 2.0)
             
             let persp = simd_float4x4(
                 SIMD4<Float>(f / aspect, 0, 0, 0),
@@ -125,8 +127,15 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
-            var finalMatrix = persp * rotX * rotY
-            finalMatrix.columns.3.z = -4.0
+            // 用平移矩阵把立方体推到 z = -4 的位置
+            let translation = simd_float4x4(
+                SIMD4<Float>(1, 0, 0, 0),
+                SIMD4<Float>(0, 1, 0, 0),
+                SIMD4<Float>(0, 0, 1, 0),
+                SIMD4<Float>(0, 0, -4, 1)
+            )
+            
+            let finalMatrix = persp * translation * rotX * rotY
             
             var matrixArray: [Float] = []
             for col in 0..<4 {
