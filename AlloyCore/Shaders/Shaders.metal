@@ -4,10 +4,6 @@ using namespace metal;
 constant int MAX_TILE_TRIANGLES = 128;
 constant int TILE_SIZE = 16;
 
-// 顶点布局（输入/输出都是 12 个 float）：
-// 输入 (模型空间)：position(3) + color(4) + uv(2) + normal(3)
-// 输出 (屏幕空间)：screenPos(2) + uv(2) + invZ(1) + normal(3) + color(4)
-
 struct ScreenVertex {
     float2 position;
     float2 uv;
@@ -21,7 +17,6 @@ struct TriangleRef {
     uint texID;
 };
 
-// 🔥 新增：几何处理，只跑一次
 kernel void geometry_pass(
     device const float* inputVBO [[buffer(0)]],
     device float* outputVBO [[buffer(1)]],
@@ -101,12 +96,9 @@ kernel void process_commands(
 
     threadgroup atomic_uint triCount;
     threadgroup TriangleRef triList[MAX_TILE_TRIANGLES];
-    threadgroup float tileDepthBuffer[256];
     threadgroup float4 sharedClearColor;
     threadgroup uint sharedDepthTestEnabled;
     threadgroup uint sharedCullMode;
-    
-    uint pixelIndex = localId.y * TILE_SIZE + localId.x;
     
     if (localId.x == 0 && localId.y == 0) {
         atomic_store_explicit(&triCount, 0, memory_order_relaxed);
@@ -114,10 +106,8 @@ kernel void process_commands(
         sharedDepthTestEnabled = 1;
         sharedCullMode = 0;
     }
-    tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 预解析：收集三角形 + 读取状态
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount) {
@@ -137,7 +127,6 @@ kernel void process_commands(
             } else if (opcode == 0x04) {
                 i += 3;
             } else if (opcode == 0x06) {
-                // 矩阵已经在 geometry_pass 用过了，这里跳过
                 i += 17;
             } else if (opcode == 0x01) {
                 uint indexStart = rawCommands[i+1];
@@ -170,63 +159,10 @@ kernel void process_commands(
     uint finalTriCount = atomic_load_explicit(&triCount, memory_order_relaxed);
     if (finalTriCount > MAX_TILE_TRIANGLES) finalTriCount = MAX_TILE_TRIANGLES;
 
-    float w = float(output.get_width());
-    float h = float(output.get_height());
-
-    // 深度预通道
-    for (uint t = 0; t < finalTriCount; t++) {
-        TriangleRef ref = triList[t];
-        ScreenVertex v0 = loadScreenVertex(screenVertexData, ref.v0);
-        ScreenVertex v1 = loadScreenVertex(screenVertexData, ref.v1);
-        ScreenVertex v2 = loadScreenVertex(screenVertexData, ref.v2);
-        
-        float2 s0 = v0.position;
-        float2 s1 = v1.position;
-        float2 s2 = v2.position;
-        
-        float minX = min(min(s0.x, s1.x), s2.x);
-        float maxX = max(max(s0.x, s1.x), s2.x);
-        float minY = min(min(s0.y, s1.y), s2.y);
-        float maxY = max(max(s0.y, s1.y), s2.y);
-        
-        if (maxX < float(tileMin.x) || minX > float(tileMax.x) ||
-            maxY < float(tileMin.y) || minY > float(tileMax.y)) continue;
-        
-        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
-        
-        float2 e0 = s1 - s0;
-        float2 e1 = s2 - s0;
-        float2 e2 = pixel_pos - s0;
-        
-        float d00 = dot(e0, e0);
-        float d01 = dot(e0, e1);
-        float d02 = dot(e0, e2);
-        float d11 = dot(e1, e1);
-        float d12 = dot(e1, e2);
-        
-        float invDenom = 1.0 / (d00 * d11 - d01 * d01);
-        float u = (d11 * d02 - d01 * d12) * invDenom;
-        float v = (d00 * d12 - d01 * d02) * invDenom;
-        float wBary = 1.0 - u - v;
-        
-        if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
-            float invZ);
- = wBary * v0.in               vZ + u * v1.inv }
-Z + v * v2.invZ                
-;
-            if (sharedDepthTestEnabled ==                1) {
-                if (invZ > tile floatDepthBuffer[pixelIndex]) {
-                    tileDepthBuffer[pixelIndex] = invZ;
-                }
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // 着色通道
-    float4 finalColor = sharedClearColor;
+    // 单一通道：直接算出最近的深度，然后着色
+    float closestInvZ = -1e9;
+    float4 bestColor = sharedClearColor;
+    float bestInvZ = -1e9;
     
     for (uint t = 0; t < finalTriCount; t++) {
         TriangleRef ref = triList[t];
@@ -268,12 +204,16 @@ Z + v * v2.invZ
         if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
             float invZ = wBary * v0.invZ + u * v1.invZ + v * v2.invZ;
             
-            bool shouldDraw = true;
+            bool passesDepth;
             if (sharedDepthTestEnabled == 1) {
-                if (abs(invZ - tileDepthBuffer[pixelIndex]) >= 0.0001) shouldDraw = false;
+                passesDepth = (invZ > closestInvZ);
+            } else {
+                passesDepth = true;
             }
             
-            if (shouldDraw) {
+            if (passesDepth) {
+                closestInvZ = invZ;
+                
                 float invZ0 = v0.invZ;
                 float invZ1 = v1.invZ;
                 float invZ2 = v2.invZ;
@@ -290,11 +230,15 @@ Z + v * v2.invZ
                 if (ref.texID == 0) {
                     texColor = texture0.sample(textureSampler, uvInterp);
                 } else {
-                    texColor = texture1.sample(textureSampler, uvInterp intensity = max(dot(normal, lightDir), 0.2);
-                finalColor = colorInterp * texColor * intensity;
+                    texColor = texture1.sample(textureSampler, uvInterp);
+                }
+                
+                float intensity = max(dot(normal, lightDir), 0.2);
+                bestColor = colorInterp * texColor * intensity;
+                bestInvZ = invZ;
             }
         }
     }
     
-    output.write(finalColor, gid);
+    output.write(bestColor, gid);
 }
