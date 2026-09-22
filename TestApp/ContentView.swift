@@ -38,7 +38,7 @@ struct MetalView: UIViewRepresentable {
         var texture1: MTLTexture?
         var time: Float = 0.0
         
-        var sphereVertices: [SIMD3<Float>] = [] // 模型空间
+        var sphereVertices: [SIMD3<Float>] = []
         var sphereUVs: [SIMD2<Float>] = []
         var sphereNormals: [SIMD3<Float>] = []
         var sphereIndices: [UInt32] = []
@@ -46,7 +46,6 @@ struct MetalView: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func generateSphere() {
-            // 🔥 直接把顶点分辨率拉满！20x20 = 800 个三角形，CPU 也不再是瓶颈
             let latBands = 20
             let lonBands = 20
             
@@ -94,11 +93,9 @@ struct MetalView: UIViewRepresentable {
             let ax = time * 0.6
             let ay = time * 0.8
             
-            // 🔥 每帧只算 1 次三角函数，生成 4x4 矩阵
             let cosAY = cos(ay); let sinAY = sin(ay)
             let cosAX = cos(ax); let sinAX = sin(ax)
             
-            // 构建旋转矩阵（Y 轴旋转 * X 轴旋转）
             let rotY = simd_float4x4(
                 SIMD4<Float>(cosAY, 0, -sinAY, 0),
                 SIMD4<Float>(0, 1, 0, 0),
@@ -111,28 +108,22 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, -sinAX, cosAX, 0),
                 SIMD4<Float>(0, 0, 0, 1)
             )
-            // 注意：这里简化为旋转矩阵，真正的透视投影矩阵我们后续在 Shader 里做
-            // 但为了保留透视效果，我们可以手动构造一个简单的透视矩阵。
-            // 这里为了演示，直接传旋转矩阵，Shader 里简化处理。
             
-            // 为简单起见，在 CPU 生成一个包含透视投影的矩阵
             let fov: Float = 800.0
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
             
-            // 透视矩阵 (OpenGL 风格，NDC z 范围 [-1, 1])
-            let f = 1.0 / tan(Float.pi / 4.0) // 90度视场角的一半
+            // 🔥 修复：f 的计算改为 45 度视场角，让球体大一点
+            let f = 1.0 / tan(Float.pi / 8.0)
             let persp = simd_float4x4(
-                SIMD4<Float>(f / aspect, 0, 0, 0),
-                SIMD4<Float>(0, f, 0, 0),
-                SIMD4<Float>(0, 0, (zFar + zNear) / (zNear - zFar), -1),
+                SIMD4<hereFloat>(f / aspect, Ind0, 0, 0),
+                SIMicesD4<Float>(0, f,.count 0, 0),
+),                SIMD4<Float>(0, 0, (z textureFar + zNear) / (zNear - zFar), -1),
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
-            // 最后将矩阵压扁成 16 个 float 发给引擎
             var finalMatrix = persp * rotX * rotY
-            // 扩大一点，让它看起来近一点
             finalMatrix.columns.3.z = -4.0
             
             var matrixArray: [Float] = []
@@ -148,26 +139,27 @@ struct MetalView: UIViewRepresentable {
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            pso.cullMode = 1
+            // 🔥 修复：暂时关闭背面剔除，先看看球体是否能正常出现
+            pso.cullMode = 0
             gal.bindPipeline(pso)
             
-            // 🔥 发送矩阵指令
             gal.setTransform(matrix: matrixArray)
             
-            // 🔥 顶点数据不再做任何 CPU 运算，原样打包
             var finalVertexData: [Float] = []
+            finalVertexData.reserveCapacity(sphereVertices.count * 12)
+            
             for i in 0..<sphereVertices.count {
                 finalVertexData.append(contentsOf: [
-                    sphereVertices[i].x, sphereVertices[i].y, sphereVertices[i].z, // 位置
-                    1, 1, 1, 1,                                                   // 颜色
-                    sphereUVs[i].x, sphereUVs[i].y,                               // UV
-                    sphereNormals[i].x, sphereNormals[i].y, sphereNormals[i].z    // 法线
+                    sphereVertices[i].x, sphereVertices[i].y, sphereVertices[i].z,
+                    1, 1, 1, 1,
+                    sphereUVs[i].x, sphereUVs[i].y,
+                    sphereNormals[i].x, sphereNormals[i].y, sphereNormals[i].z
                 ])
             }
             
             gal.vertexData = finalVertexData
             gal.indexData = sphereIndices
-            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(sphereIndices.count), textureID: 0)
+            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(spID: 0)
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
