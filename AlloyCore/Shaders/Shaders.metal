@@ -1,9 +1,10 @@
 #include <metal_stdlib>
 using namespace metal;
 
-constant int MAX_TILE_TRIANGLES = 128;
+// 🔥 修复：从 128 提升到 1024，防止球体三角形溢出
+constant int MAX_TILE_TRIANGLES = 1024;
 constant int TILE_SIZE = 16;
-constant int VERTEX_STRIDE = 12; // position(3) + color(4) + uv(2) + normal(3) = 12 floats
+constant int VERTEX_STRIDE = 12;
 
 struct Vertex {
     float3 position;
@@ -55,7 +56,6 @@ kernel void process_commands(
     threadgroup uint sharedDepthTestEnabled;
     threadgroup uint sharedCullMode;
     
-    // 🔥 修复：用 4 个 float4 列向量存储矩阵
     threadgroup float4 sharedTransformCol0;
     threadgroup float4 sharedTransformCol1;
     threadgroup float4 sharedTransformCol2;
@@ -68,7 +68,6 @@ kernel void process_commands(
         sharedClearColor = float4(0.0, 0.0, 0.0, 1.0);
         sharedDepthTestEnabled = 1;
         sharedCullMode = 0;
-        // 默认单位矩阵
         sharedTransformCol0 = float4(1, 0, 0, 0);
         sharedTransformCol1 = float4(0, 1, 0, 0);
         sharedTransformCol2 = float4(0, 0, 1, 0);
@@ -77,7 +76,7 @@ kernel void process_commands(
     tileDepthBuffer[pixelIndex] = -1e9;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 1. 预解析，收集三角形，读取变换矩阵
+    // 1. 预解析
     if (localId.x == 0 && localId.y == 0) {
         uint i = 0;
         while (i < commandCount) {
@@ -97,7 +96,6 @@ kernel void process_commands(
             } else if (opcode == 0x04) {
                 i += 3;
             } else if (opcode == 0x06) {
-                // 🔥 读取 16 个 float，按列填入 4 个列向量
                 sharedTransformCol0 = float4(as_type<float>(rawCommands[i+1]), as_type<float>(rawCommands[i+2]), as_type<float>(rawCommands[i+3]), as_type<float>(rawCommands[i+4]));
                 sharedTransformCol1 = float4(as_type<float>(rawCommands[i+5]), as_type<float>(rawCommands[i+6]), as_type<float>(rawCommands[i+7]), as_type<float>(rawCommands[i+8]));
                 sharedTransformCol2 = float4(as_type<float>(rawCommands[i+9]), as_type<float>(rawCommands[i+10]), as_type<float>(rawCommands[i+11]), as_type<float>(rawCommands[i+12]));
@@ -115,14 +113,6 @@ kernel void process_commands(
                     uint v1 = indexData[indexStart + t + 1];
                     uint v2 = indexData[indexStart + t + 2];
                     
-                    Vertex vert0 = loadVertex(vertexData, v0);
-                    Vertex vert1 = loadVertex(vertexData, v1);
-                    Vertex vert2 = loadVertex(vertexData, v2);
-                    
-                    // 🔥 用模型空间顶点算包围盒（在屏幕空间做剔除才对，但这里简单一点）
-                    // 为了做真实的屏幕空间剔除，我们其实要用矩阵算一遍，但这里为了性能简化
-                    // 直接用 3D 位置粗略判断：反正转完以后顶点位置不同，暂时用简单包围盒
-                    // 简化处理：全部接受
                     uint idx = atomic_fetch_add_explicit(&triCount, 1, memory_order_relaxed);
                     if (idx < MAX_TILE_TRIANGLES) {
                         triList[idx].v0 = v0;
@@ -139,7 +129,6 @@ kernel void process_commands(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // 🔥 每个线程从共享内存的 4 列重建本地矩阵
     float4x4 sharedTransform = float4x4(
         sharedTransformCol0,
         sharedTransformCol1,
@@ -160,24 +149,20 @@ kernel void process_commands(
         Vertex v1 = loadVertex(vertexData, ref.v1);
         Vertex v2 = loadVertex(vertexData, ref.v2);
         
-        // 🔥 在 GPU 里做矩阵变换
         float4 clip0 = sharedTransform * float4(v0.position, 1.0);
         float4 clip1 = sharedTransform * float4(v1.position, 1.0);
         float4 clip2 = sharedTransform * float4(v2.position, 1.0);
         
-        // 如果 w <= 0，说明在相机后面，直接跳过
         if (clip0.w <= 0.0 || clip1.w <= 0.0 || clip2.w <= 0.0) continue;
         
         float2 p0 = clip0.xy / clip0.w;
         float2 p1 = clip1.xy / clip1.w;
         float2 p2 = clip2.xy / clip2.w;
         
-        // NDC -> 屏幕
         float2 s0 = float2((p0.x + 1.0) * 0.5 * w, (1.0 - p0.y) * 0.5 * h);
         float2 s1 = float2((p1.x + 1.0) * 0.5 * w, (1.0 - p1.y) * 0.5 * h);
         float2 s2 = float2((p2.x + 1.0) * 0.5 * w, (1.0 - p2.y) * 0.5 * h);
         
-        // 包围盒剔除
         float minX = min(min(s0.x, s1.x), s2.x);
         float maxX = max(max(s0.x, s1.x), s2.x);
         float minY = min(min(s0.y, s1.y), s2.y);
@@ -187,8 +172,8 @@ kernel void process_commands(
             maxY < float(tileMin.y) || minY > float(tileMax.y)) continue;
         
         float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
         
         float2 e0 = s1 - s0;
         float2 e1 = s2 - s0;
@@ -251,8 +236,8 @@ kernel void process_commands(
             maxY < float(tileMin.y) || minY > float(tileMax.y)) continue;
         
         float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (sharedCullMode == 1 && cross2D <= 0.0) continue;
-        if (sharedCullMode == 2 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 1 && cross2D >= 0.0) continue;
+        if (sharedCullMode == 2 && cross2D <= 0.0) continue;
         
         float2 e0 = s1 - s0;
         float2 e1 = s2 - s0;
@@ -284,7 +269,6 @@ kernel void process_commands(
                 float2 uvInterp = (wBary * v0.uv * invZ0 + u * v1.uv * invZ1 + v * v2.uv * invZ2) / invZ;
                 float4 colorInterp = wBary * v0.color + u * v1.color + v * v2.color;
                 
-                // 法线变换（忽略平移，仅用旋转部分）
                 float3 n0 = normalize((sharedTransform * float4(v0.normal, 0.0)).xyz);
                 float3 n1 = normalize((sharedTransform * float4(v1.normal, 0.0)).xyz);
                 float3 n2 = normalize((sharedTransform * float4(v2.normal, 0.0)).xyz);
