@@ -12,7 +12,7 @@ struct MetalView: UIViewRepresentable {
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 60
         
-        let renderer = AlloyRenderer()
+        guard let renderer = AlloyRenderer() else { return view }
         context.coordinator.renderer = renderer
         
         if let device = view.device {
@@ -39,15 +39,12 @@ struct MetalView: UIViewRepresentable {
         var texture1: MTLTexture?
         var time: Float = 0.0
         
-        // 立方体几何数据（模型空间）
         var vertexData: [Float] = []
         var indexData: [UInt32] = []
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         
         func buildCubeGeometry() {
-            // 每个面 4 个独立顶点（因为 UV 和法线不同）
-            // 顶点布局：position(3) + color(4) + uv(2) + normal(3) = 12 floats
             let faces: [(normal: SIMD3<Float>, verts: [SIMD3<Float>])] = [
                 (SIMD3<Float>(0, 0, -1), [SIMD3<Float>(-1, -1, -1), SIMD3<Float>(1, -1, -1), SIMD3<Float>(1, 1, -1), SIMD3<Float>(-1, 1, -1)]),
                 (SIMD3<Float>(1, 0, 0),  [SIMD3<Float>(1, -1, -1), SIMD3<Float>(1, -1, 1), SIMD3<Float>(1, 1, 1), SIMD3<Float>(1, 1, -1)]),
@@ -78,7 +75,6 @@ struct MetalView: UIViewRepresentable {
                     ])
                 }
                 
-                // 两个三角形
                 indexData.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
                 indexData.append(contentsOf: [baseIndex, baseIndex + 2, baseIndex + 3])
             }
@@ -149,8 +145,6 @@ struct MetalView: UIViewRepresentable {
             gal.bindPipeline(pso)
             
             gal.setTransform(matrix: matrixArray)
-            
-            // 一次画完所有 12 个三角形
             gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(indexData.count), textureID: 0)
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
