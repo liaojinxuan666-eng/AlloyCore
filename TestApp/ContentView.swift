@@ -48,7 +48,9 @@ struct MetalView: UIViewRepresentable {
             vertexData.removeAll()
             indexData.removeAll()
             
+            // 每个小立方体的边长
             let s: Float = 0.15
+            // 网格排布：5x5x5 = 125 个立方体 = 1500 个三角形
             let gridN = 5
             let spacing: Float = 2.0 / Float(gridN)
             
@@ -181,12 +183,10 @@ struct MetalView: UIViewRepresentable {
             
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
-                cmdBuffer.addCompletedHandler { buffer in
-                    let gpuTime = buffer.gpuEndTime - buffer.gpuStartTime
-                    PerformanceMonitor.shared.markFrame(gpuTime: gpuTime)
-                }
                 cmdBuffer.commit()
             }
+            
+            PerformanceMonitor.shared.markFrame()
         }
     }
 }
@@ -199,8 +199,6 @@ struct PerformanceHUD: View {
             Text(String(format: "FPS: %.1f", perf.fps))
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
             Text(String(format: "Frame: %.2f ms", perf.frameTimeMs))
-                .font(.system(size: 12, design: .monospaced))
-            Text(String(format: "GPU: %.2f ms", perf.gpuTimeMs))
                 .font(.system(size: 12, design: .monospaced))
             Text("Tris: \(perf.triangleCount)")
                 .font(.system(size: 12, design: .monospaced))
