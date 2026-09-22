@@ -116,8 +116,8 @@ struct MetalView: UIViewRepresentable {
             let zNear: Float = 0.1
             let zFar: Float = 100.0
             let aspect = width / height
-            // 60 度垂直视场角
-            let fovY: Float = 60.0 * Float.pi / 180.0
+            // 🔥 用 45 度 fov，让立方体尺寸更温和
+            let fovY: Float = 45.0 * Float.pi / 180.0
             let f = 1.0 / tan(fovY / 2.0)
             
             let persp = simd_float4x4(
@@ -127,12 +127,12 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
             
-            // 用平移矩阵把立方体推到 z = -4 的位置
+            // 🔥 把立方体推到 z = -6，摄像机离它更远
             let translation = simd_float4x4(
                 SIMD4<Float>(1, 0, 0, 0),
                 SIMD4<Float>(0, 1, 0, 0),
                 SIMD4<Float>(0, 0, 1, 0),
-                SIMD4<Float>(0, 0, -4, 1)
+                SIMD4<Float>(0, 0, -6, 1)
             )
             
             let finalMatrix = persp * translation * rotX * rotY
@@ -150,7 +150,8 @@ struct MetalView: UIViewRepresentable {
             
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            pso.cullMode = 1
+            // 🔥 暂时关掉背面剔除，先让立方体正常显示
+            pso.cullMode = 0
             gal.bindPipeline(pso)
             
             gal.setTransform(matrix: matrixArray)
