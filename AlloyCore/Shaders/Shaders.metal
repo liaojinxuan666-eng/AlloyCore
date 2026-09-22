@@ -2,7 +2,7 @@
 using namespace metal;
 
 // 🔥 修复：从 128 提升到 1024，防止球体三角形溢出
-constant int MAX_TILE_TRIANGLES = 1024;
+constant int MAX_TILE_TRIANGLES = 128;
 constant int TILE_SIZE = 16;
 constant int VERTEX_STRIDE = 12;
 
