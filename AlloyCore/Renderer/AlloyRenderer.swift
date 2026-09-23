@@ -51,7 +51,9 @@ public class AlloyRenderer {
         cachedVertexBuffer = device.makeBuffer(bytes: vertexData,
                                                length: vertexData.count * MemoryLayout<Float>.size,
                                                options: .storageModeShared)
-        cachedScreenVertexBuffer = device.makeBuffer(length: vertexData.count * MemoryLayout<Float>.size,
+        // 屏幕空间顶点 stride 从 12 变成 13（增加 clipW）
+        let screenVertexCount = vertexData.count / 12
+        cachedScreenVertexBuffer = device.makeBuffer(length: screenVertexCount * 13 * MemoryLayout<Float>.size,
                                                      options: .storageModePrivate)
         cachedIndexBuffer = device.makeBuffer(bytes: indexData,
                                               length: indexData.count * MemoryLayout<UInt32>.size,
