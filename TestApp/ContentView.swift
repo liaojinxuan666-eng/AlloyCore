@@ -50,7 +50,7 @@ struct MetalView: UIViewRepresentable {
             
             let s: Float = 0.15
             // 🔥 降温：从 5x5x5 降到 3x3x3（27 个立方体 = 324 个三角形）
-            let gridN = 5
+            let gridN = 10
             let spacing: Float = 2.0 / Float(gridN)
             
             let baseVerts: [SIMD3<Float>] = [
