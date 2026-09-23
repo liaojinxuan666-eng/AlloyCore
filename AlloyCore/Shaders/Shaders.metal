@@ -3,23 +3,27 @@ using namespace metal;
 
 constant int TILE_SIZE = 16;
 constant int MAX_PER_TILE = 256;
+constant int VERTEX_STRIDE = 13;
+constant float NEAR_W = 0.001;
 
 struct ScreenVertex {
     float2 position;
     float2 uv;
     float invZ;
+    float clipW;
     float3 normal;
     float4 color;
 };
 
 inline ScreenVertex loadScreenVertex(device const float* vd, uint index) {
-    uint off = index * 12;
+    uint off = index * VERTEX_STRIDE;
     ScreenVertex v;
     v.position = float2(vd[off], vd[off+1]);
     v.uv = float2(vd[off+2], vd[off+3]);
     v.invZ = vd[off+4];
-    v.normal = float3(vd[off+5], vd[off+6], vd[off+7]);
-    v.color = float4(vd[off+8], vd[off+9], vd[off+10], vd[off+11]);
+    v.clipW = vd[off+5];
+    v.normal = float3(vd[off+6], vd[off+7], vd[off+8]);
+    v.color = float4(vd[off+9], vd[off+10], vd[off+11], vd[off+12]);
     return v;
 }
 
@@ -41,31 +45,43 @@ kernel void geometry_pass(
     
     float4 clip = transform * float4(pos, 1.0);
     
-    float2 screenPos;
-    float invZ;
-    if (clip.w <= 0.0001) {
-        screenPos = float2(-10000.0, -10000.0);
-        invZ = -1e9;
-    } else {
-        float2 ndc = clip.xy / clip.w;
-        screenPos = float2((ndc.x + 1.0) * 0.5 * screenSize.x, (1.0 - ndc.y) * 0.5 * screenSize.y);
-        invZ = 1.0 / clip.w;
+    uint dst = gid * VERTEX_STRIDE;
+    
+    if (clip.w <= NEAR_W) {
+        outputVBO[dst+0] = -10000.0;
+        outputVBO[dst+1] = -10000.0;
+        outputVBO[dst+2] = uv.x;
+        outputVBO[dst+3] = uv.y;
+        outputVBO[dst+4] = -1e9;
+        outputVBO[dst+5] = clip.w;
+        outputVBO[dst+6] = 0.0;
+        outputVBO[dst+7] = 0.0;
+        outputVBO[dst+8] = 1.0;
+        outputVBO[dst+9] = color.r;
+        outputVBO[dst+10] = color.g;
+        outputVBO[dst+11] = color.b;
+        outputVBO[dst+12] = color.a;
+        return;
     }
     
+    float2 ndc = clip.xy / clip.w;
+    float2 screenPos = float2((ndc.x + 1.0) * 0.5 * screenSize.x, (1.0 - ndc.y) * 0.5 * screenSize.y);
+    float invZ = 1.0 / clip.w;
     float3 viewNormal = (transform * float4(nrm, 0.0)).xyz;
     
-    outputVBO[src+0] = screenPos.x;
-    outputVBO[src+1] = screenPos.y;
-    outputVBO[src+2] = uv.x;
-    outputVBO[src+3] = uv.y;
-    outputVBO[src+4] = invZ;
-    outputVBO[src+5] = viewNormal.x;
-    outputVBO[src+6] = viewNormal.y;
-    outputVBO[src+7] = viewNormal.z;
-    outputVBO[src+8] = color.r;
-    outputVBO[src+9] = color.g;
-    outputVBO[src+10] = color.b;
-    outputVBO[src+11] = color.a;
+    outputVBO[dst+0] = screenPos.x;
+    outputVBO[dst+1] = screenPos.y;
+    outputVBO[dst+2] = uv.x;
+    outputVBO[dst+3] = uv.y;
+    outputVBO[dst+4] = invZ;
+    outputVBO[dst+5] = clip.w;
+    outputVBO[dst+6] = viewNormal.x;
+    outputVBO[dst+7] = viewNormal.y;
+    outputVBO[dst+8] = viewNormal.z;
+    outputVBO[dst+9] = color.r;
+    outputVBO[dst+10] = color.g;
+    outputVBO[dst+11] = color.b;
+    outputVBO[dst+12] = color.a;
 }
 
 kernel void binning_pass(
@@ -86,6 +102,8 @@ kernel void binning_pass(
     ScreenVertex sv0 = loadScreenVertex(screenVertexData, v0);
     ScreenVertex sv1 = loadScreenVertex(screenVertexData, v1);
     ScreenVertex sv2 = loadScreenVertex(screenVertexData, v2);
+    
+    if (sv0.clipW <= NEAR_W || sv1.clipW <= NEAR_W || sv2.clipW <= NEAR_W) return;
     
     float minX = min(min(sv0.position.x, sv1.position.x), sv2.position.x);
     float maxX = max(max(sv0.position.x, sv1.position.x), sv2.position.x);
@@ -125,9 +143,7 @@ kernel void rasterize_pass(
     texture2d<float> texture0 [[texture(1)]],
     texture2d<float> texture1 [[texture(2)]],
     uint2 gid [[thread_position_in_grid]],
-    uint2 tileOrigin [[threadgroup_position_in_grid]],
-    uint2 localId [[thread_position_in_threadgroup]],
-    uint2 tileSize [[threads_per_threadgroup]]
+    uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
     constexpr sampler textureSampler(mag_filter::linear, min_filter::linear);
     
