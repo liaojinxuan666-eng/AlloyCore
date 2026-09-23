@@ -239,3 +239,14 @@ kernel void process_commands(
     
     output.write(bestColor, gid);
 }
+
+kernel void upscale_pass(
+    texture2d<float, access::sample> lowRes [[texture(0)]],
+    texture2d<float, access::write> highRes [[texture(1)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    constexpr sampler s(mag_filter::linear, min_filter::linear);
+    float2 uv = (float2(gid) + 0.5) / float2(highRes.get_width(), highRes.get_height());
+    float4 color = lowRes.sample(s, uv);
+    highRes.write(color, gid);
+}
