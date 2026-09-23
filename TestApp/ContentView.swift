@@ -48,10 +48,9 @@ struct MetalView: UIViewRepresentable {
             vertexData.removeAll()
             indexData.removeAll()
             
-            // 每个小立方体的边长
             let s: Float = 0.15
-            // 网格排布：5x5x5 = 125 个立方体 = 1500 个三角形
-            let gridN = 5
+            // 🔥 降温：从 5x5x5 降到 3x3x3（27 个立方体 = 324 个三角形）
+            let gridN = 3
             let spacing: Float = 2.0 / Float(gridN)
             
             let baseVerts: [SIMD3<Float>] = [
