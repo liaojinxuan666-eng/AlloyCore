@@ -175,7 +175,7 @@ struct MetalView: UIViewRepresentable {
 
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
-            pso.cullMode = 0
+            pso.cullMode = 1
             gal.bindPipeline(pso)
 
             gal.setTransform(matrix: matrixArray)
