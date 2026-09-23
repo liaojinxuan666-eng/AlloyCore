@@ -36,15 +36,12 @@ kernel void geometry_pass(
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= vertexCount) return;
-    
     uint src = gid * 12;
     float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
     float4 color = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
     float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
     float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
-    
     float4 clip = transform * float4(pos, 1.0);
-    
     uint dst = gid * VERTEX_STRIDE;
     
     if (clip.w <= NEAR_W) {
@@ -94,11 +91,9 @@ kernel void binning_pass(
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= triangleCount) return;
-    
     uint v0 = indexData[gid * 3];
     uint v1 = indexData[gid * 3 + 1];
     uint v2 = indexData[gid * 3 + 2];
-    
     ScreenVertex sv0 = loadScreenVertex(screenVertexData, v0);
     ScreenVertex sv1 = loadScreenVertex(screenVertexData, v1);
     ScreenVertex sv2 = loadScreenVertex(screenVertexData, v2);
@@ -112,7 +107,6 @@ kernel void binning_pass(
     
     float screenW = float(screenTileCounts.x * TILE_SIZE);
     float screenH = float(screenTileCounts.y * TILE_SIZE);
-    
     if (maxX < 0.0 || minX >= screenW) return;
     if (maxY < 0.0 || minY >= screenH) return;
     
@@ -139,6 +133,7 @@ kernel void rasterize_pass(
     device const uint* binData [[buffer(3)]],
     constant uint& screenTileCountX [[buffer(4)]],
     constant uint& depthTestEnabled [[buffer(5)]],
+    constant uint& cullMode [[buffer(6)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> texture0 [[texture(1)]],
     texture2d<float> texture1 [[texture(2)]],
@@ -146,7 +141,6 @@ kernel void rasterize_pass(
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
     constexpr sampler textureSampler(mag_filter::linear, min_filter::linear);
-    
     if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
     
     uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
@@ -155,7 +149,6 @@ kernel void rasterize_pass(
     
     float2 pixel_pos = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-    
     float4 bestColor = float4(0.1, 0.1, 0.15, 1.0);
     float closestInvZ = -1e9;
     
@@ -172,6 +165,11 @@ kernel void rasterize_pass(
         float2 s0 = sv0.position;
         float2 s1 = sv1.position;
         float2 s2 = sv2.position;
+        
+        // 🔥 关键修复：cull 检查
+        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+        if (cullMode == 1 && cross2D >= 0.0) continue;
+        if (cullMode == 2 && cross2D <= 0.0) continue;
         
         float2 e0 = s1 - s0;
         float2 e1 = s2 - s0;
@@ -192,37 +190,27 @@ kernel void rasterize_pass(
         
         if (u >= 0.0 && v >= 0.0 && wBary >= 0.0) {
             float invZ = wBary * sv0.invZ + u * sv1.invZ + v * sv2.invZ;
-            
             bool passesDepth;
-            if (depthTestEnabled == 1) {
-                passesDepth = (invZ > closestInvZ);
-            } else {
-                passesDepth = true;
-            }
+            if (depthTestEnabled == 1) { passesDepth = (invZ > closestInvZ); }
+            else { passesDepth = true; }
             
             if (passesDepth) {
                 closestInvZ = invZ;
-                
                 float invZ0 = sv0.invZ;
                 float invZ1 = sv1.invZ;
                 float invZ2 = sv2.invZ;
-                
                 float2 uvInterp = (wBary * sv0.uv * invZ0 + u * sv1.uv * invZ1 + v * sv2.uv * invZ2) / invZ;
                 float4 colorInterp = wBary * sv0.color + u * sv1.color + v * sv2.color;
-                
                 float3 n0 = normalize(sv0.normal);
                 float3 n1 = normalize(sv1.normal);
                 float3 n2 = normalize(sv2.normal);
                 float3 normal = normalize(wBary * n0 + u * n1 + v * n2);
-                
                 float4 texColor = texture0.sample(textureSampler, uvInterp);
-                
                 float intensity = max(dot(normal, lightDir), 0.2);
                 bestColor = colorInterp * texColor * intensity;
             }
         }
     }
-    
     output.write(bestColor, gid);
 }
 
