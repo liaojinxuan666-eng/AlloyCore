@@ -51,7 +51,6 @@ public class AlloyRenderer {
         cachedVertexBuffer = device.makeBuffer(bytes: vertexData,
                                                length: vertexData.count * MemoryLayout<Float>.size,
                                                options: .storageModeShared)
-        // 屏幕空间顶点 stride 从 12 变成 13（增加 clipW）
         let screenVertexCount = vertexData.count / 12
         cachedScreenVertexBuffer = device.makeBuffer(length: screenVertexCount * 13 * MemoryLayout<Float>.size,
                                                      options: .storageModePrivate)
@@ -131,7 +130,24 @@ public class AlloyRenderer {
         var triangleCount = UInt32(cachedTriangleCount)
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
         var screenTileCountX = tileCountX
+
+        // 从指令流中提取 depthTestEnabled 和 cullMode
         var depthTestEnabled: UInt32 = 1
+        var cullMode: UInt32 = 0
+        var ci = 0
+        while ci < rawCommands.count {
+            let op = rawCommands[ci]
+            if op == 0x01 { ci += 4 }
+            else if op == 0x02 { ci += 5 }
+            else if op == 0x03 {
+                depthTestEnabled = (rawCommands[ci+1] == 0) ? 0 : 1
+                cullMode = rawCommands[ci+2]
+                ci += 5
+            }
+            else if op == 0x04 { ci += 3 }
+            else if op == 0x06 { ci += 17 }
+            else { break }
+        }
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
@@ -175,6 +191,7 @@ public class AlloyRenderer {
             rasEnc.setBuffer(binData, offset: 0, index: 3)
             rasEnc.setBytes(&screenTileCountX, length: MemoryLayout<UInt32>.size, index: 4)
             rasEnc.setBytes(&depthTestEnabled, length: MemoryLayout<UInt32>.size, index: 5)
+            rasEnc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             rasEnc.setTexture(lowRes, index: 0)
             rasEnc.setTexture(texture0, index: 1)
             rasEnc.setTexture(texture1, index: 2)
