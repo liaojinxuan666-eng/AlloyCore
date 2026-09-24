@@ -6,6 +6,7 @@ public class AlloyRenderer {
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
     var geometryPipeline: MTLComputePipelineState!
+    var clipProjectPipeline: MTLComputePipelineState!
     var binningPipeline: MTLComputePipelineState!
     var rasterizePipeline: MTLComputePipelineState!
     var upscalePipeline: MTLComputePipelineState!
@@ -14,10 +15,13 @@ public class AlloyRenderer {
     public var renderScale: Float = 0.5
     var lowResTexture: MTLTexture?
     var cachedVertexBuffer: MTLBuffer?
-    var cachedScreenVertexBuffer: MTLBuffer?
+    var cachedClipSpaceBuffer: MTLBuffer?
+    var cachedClipOutputVerts: MTLBuffer?
+    var cachedClipOutputIndices: MTLBuffer?
     var cachedIndexBuffer: MTLBuffer?
     var cachedVertexCount: Int = 0
     var cachedTriangleCount: Int = 0
+    var cachedMaxOutputTriangles: Int = 0
     var binCountsBuffer: MTLBuffer?
     var binDataBuffer: MTLBuffer?
     var binTileCountX: UInt32 = 0
@@ -32,6 +36,7 @@ public class AlloyRenderer {
         let bundle = Bundle(for: AlloyRenderer.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
               let geoKernel = library.makeFunction(name: "geometry_pass"),
+              let clipKernel = library.makeFunction(name: "clip_project_pass"),
               let binKernel = library.makeFunction(name: "binning_pass"),
               let rasKernel = library.makeFunction(name: "rasterize_pass"),
               let upKernel = library.makeFunction(name: "upscale_pass") else {
@@ -39,6 +44,7 @@ public class AlloyRenderer {
         }
         do {
             geometryPipeline = try device.makeComputePipelineState(function: geoKernel)
+            clipProjectPipeline = try device.makeComputePipelineState(function: clipKernel)
             binningPipeline = try device.makeComputePipelineState(function: binKernel)
             rasterizePipeline = try device.makeComputePipelineState(function: rasKernel)
             upscalePipeline = try device.makeComputePipelineState(function: upKernel)
@@ -51,14 +57,21 @@ public class AlloyRenderer {
         cachedVertexBuffer = device.makeBuffer(bytes: vertexData,
                                                length: vertexData.count * MemoryLayout<Float>.size,
                                                options: .storageModeShared)
-        let screenVertexCount = vertexData.count / 12
-        cachedScreenVertexBuffer = device.makeBuffer(length: screenVertexCount * 13 * MemoryLayout<Float>.size,
-                                                     options: .storageModePrivate)
+        let vertexCount = vertexData.count / 12
+        let triangleCount = indexData.count / 3
+        cachedClipSpaceBuffer = device.makeBuffer(length: vertexCount * 13 * MemoryLayout<Float>.size,
+                                                  options: .storageModePrivate)
+        // 每个输入三角形最多 4 个输出顶点，最多 2 个输出三角形
+        cachedMaxOutputTriangles = triangleCount * 2
+        cachedClipOutputVerts = device.makeBuffer(length: triangleCount * 4 * 13 * MemoryLayout<Float>.size,
+                                                  options: .storageModePrivate)
+        cachedClipOutputIndices = device.makeBuffer(length: triangleCount * 2 * 3 * MemoryLayout<UInt32>.size,
+                                                    options: .storageModePrivate)
         cachedIndexBuffer = device.makeBuffer(bytes: indexData,
                                               length: indexData.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
-        cachedVertexCount = vertexData.count / 12
-        cachedTriangleCount = indexData.count / 3
+        cachedVertexCount = vertexCount
+        cachedTriangleCount = triangleCount
     }
 
     private func extractTransform(from rawCommands: [UInt32]) -> simd_float4x4 {
@@ -88,7 +101,9 @@ public class AlloyRenderer {
                        texture1: MTLTexture,
                        rawCommands: [UInt32]) -> MTLCommandBuffer? {
         guard let inputVBO = cachedVertexBuffer,
-              let outputVBO = cachedScreenVertexBuffer,
+              let clipSpaceBuf = cachedClipSpaceBuffer,
+              let outVerts = cachedClipOutputVerts,
+              let outIndices = cachedClipOutputIndices,
               let indexBuffer = cachedIndexBuffer,
               !rawCommands.isEmpty,
               cachedVertexCount > 0,
@@ -125,13 +140,13 @@ public class AlloyRenderer {
         guard let binCounts = binCountsBuffer, let binData = binDataBuffer else { return nil }
 
         var matrix = extractTransform(from: rawCommands)
-        var lowScreenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
+        var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
         var vertexCount = UInt32(cachedVertexCount)
         var triangleCount = UInt32(cachedTriangleCount)
+        var maxOutputTriangles = UInt32(cachedMaxOutputTriangles)
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
         var screenTileCountX = tileCountX
 
-        // 从指令流中提取 depthTestEnabled 和 cullMode
         var depthTestEnabled: UInt32 = 1
         var cullMode: UInt32 = 0
         var ci = 0
@@ -151,42 +166,60 @@ public class AlloyRenderer {
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
+        // Pass 1: 模型空间 → 裁剪空间
         if let geoEnc = cmdBuffer.makeComputeCommandEncoder() {
             geoEnc.setComputePipelineState(geometryPipeline)
             geoEnc.setBuffer(inputVBO, offset: 0, index: 0)
-            geoEnc.setBuffer(outputVBO, offset: 0, index: 1)
+            geoEnc.setBuffer(clipSpaceBuf, offset: 0, index: 1)
             geoEnc.setBytes(&vertexCount, length: MemoryLayout<UInt32>.size, index: 2)
             geoEnc.setBytes(&matrix, length: MemoryLayout<simd_float4x4>.size, index: 3)
-            geoEnc.setBytes(&lowScreenSize, length: MemoryLayout<SIMD2<Float>>.size, index: 4)
             let w = geometryPipeline.threadExecutionWidth
             geoEnc.dispatchThreads(MTLSize(width: cachedVertexCount, height: 1, depth: 1),
                                    threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             geoEnc.endEncoding()
         }
 
+        // Pass 2: 近平面裁剪 + 投影
+        if let clipEnc = cmdBuffer.makeComputeCommandEncoder() {
+            clipEnc.setComputePipelineState(clipProjectPipeline)
+            clipEnc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
+            clipEnc.setBuffer(indexBuffer, offset: 0, index: 1)
+            clipEnc.setBuffer(outVerts, offset: 0, index: 2)
+            clipEnc.setBuffer(outIndices, offset: 0, index: 3)
+            clipEnc.setBytes(&triangleCount, length: MemoryLayout<UInt32>.size, index: 4)
+            clipEnc.setBytes(&screenSize, length: MemoryLayout<SIMD2<Float>>.size, index: 5)
+            let w = clipProjectPipeline.threadExecutionWidth
+            clipEnc.dispatchThreads(MTLSize(width: cachedTriangleCount, height: 1, depth: 1),
+                                    threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
+            clipEnc.endEncoding()
+        }
+
+        // Pass 3: 清零 bin counts
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
             blit.fill(buffer: binCounts, range: 0..<binCounts.length, value: 0)
             blit.endEncoding()
         }
 
+        // Pass 4: 三角形分箱
         if let binEnc = cmdBuffer.makeComputeCommandEncoder() {
             binEnc.setComputePipelineState(binningPipeline)
-            binEnc.setBuffer(outputVBO, offset: 0, index: 0)
-            binEnc.setBuffer(indexBuffer, offset: 0, index: 1)
+            binEnc.setBuffer(outVerts, offset: 0, index: 0)
+            binEnc.setBuffer(outIndices, offset: 0, index: 1)
             binEnc.setBuffer(binCounts, offset: 0, index: 2)
             binEnc.setBuffer(binData, offset: 0, index: 3)
-            binEnc.setBytes(&triangleCount, length: MemoryLayout<UInt32>.size, index: 4)
+            binEnc.setBytes(&maxOutputTriangles, length: MemoryLayout<UInt32>.size, index: 4)
             binEnc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 5)
             let w = binningPipeline.threadExecutionWidth
-            binEnc.dispatchThreads(MTLSize(width: cachedTriangleCount, height: 1, depth: 1),
+            binEnc.dispatchThreads(MTLSize(width: cachedMaxOutputTriangles, height: 1, depth: 1),
                                    threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             binEnc.endEncoding()
         }
 
+        // Pass 5: 光栅化
         if let rasEnc = cmdBuffer.makeComputeCommandEncoder() {
             rasEnc.setComputePipelineState(rasterizePipeline)
-            rasEnc.setBuffer(outputVBO, offset: 0, index: 0)
-            rasEnc.setBuffer(indexBuffer, offset: 0, index: 1)
+            rasEnc.setBuffer(outVerts, offset: 0, index: 0)
+            rasEnc.setBuffer(outIndices, offset: 0, index: 1)
             rasEnc.setBuffer(binCounts, offset: 0, index: 2)
             rasEnc.setBuffer(binData, offset: 0, index: 3)
             rasEnc.setBytes(&screenTileCountX, length: MemoryLayout<UInt32>.size, index: 4)
@@ -201,6 +234,7 @@ public class AlloyRenderer {
             rasEnc.endEncoding()
         }
 
+        // Pass 6: 上采样到全屏
         if let upEnc = cmdBuffer.makeComputeCommandEncoder() {
             upEnc.setComputePipelineState(upscalePipeline)
             upEnc.setTexture(lowRes, index: 0)
