@@ -88,7 +88,6 @@ public class AlloyGAL {
         for f in matrix { frameCommandBuffer.append(f.bitPattern) }
     }
 
-    // drawIndexed 直接接收 iboHandle，内部查表
     public func drawIndexed(iboHandle: AlloyBufferHandle,
                             indexCount: UInt32,
                             firstIndex: UInt32,
@@ -101,10 +100,6 @@ public class AlloyGAL {
         frameCommandBuffer.append(textureID)
     }
 
-    // MARK: - 动态 buffer 更新（v0.3.0 地基）
-
-    /// 原地覆盖顶点数据。offset 相对 handle 起点，单位是 float。
-    /// 越界在 debug 下断言，release 下静默裁剪，绝不扩容。
     public func updateVertexBuffer(_ handle: AlloyBufferHandle,
                                    data: [Float],
                                    offset: Int = 0) {
@@ -141,8 +136,6 @@ public class AlloyGAL {
         }
     }
 
-    /// 原地覆盖索引数据。offset 相对 handle 起点，单位是 UInt32。
-    /// data 里的值是局部顶点索引，内部加上 handle 对应的 vertexPoolOffset。
     public func updateIndexBuffer(_ handle: AlloyBufferHandle,
                                   data: [UInt32],
                                   offset: Int = 0) {
@@ -152,8 +145,7 @@ public class AlloyGAL {
         let ib = indexBuffers[Int(handle)]
         let vboOffset = indexBufferVertexPoolOffsets[Int(handle)]
         let poolStart = Int(ib.offset)
-        let poolEnd   = poolStart + Int(ib.count {
-)
+        let poolEnd   = poolStart + Int(ib.count)
 
         let writeStart = poolStart + offset
         let writeEnd   = writeStart + data.count
@@ -171,7 +163,8 @@ public class AlloyGAL {
         let localEnd   = localStart + (clipEnd - clipStart)
         let absolute = data[localStart..<localEnd].map { $0 + vboOffset }
 
-        for (i, v) in absolute.enumerated()            indexPool[clipStart + i] = v
+        for (i, v) in absolute.enumerated() {
+            indexPool[clipStart + i] = v
         }
 
         frameCommandBuffer.append(0x0A)
