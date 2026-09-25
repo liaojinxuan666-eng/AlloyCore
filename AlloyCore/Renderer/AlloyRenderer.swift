@@ -86,8 +86,8 @@ public class AlloyRenderer {
                 for k in 0..<16 { m[k] = Float(bitPattern: rawCommands[i + 1 + k]) }
                 i += 17
             }
-            else if op == 0x09 { i += 3 + Int(rawCommands[i + 2]) }
-            else if op == 0x0A { i += 3 + Int(rawCommands[i + 2]) }
+            else if op == 0x09, i + 3 <= rawCommands.count { i += 3 + Int(rawCommands[i + 2]) }
+            else if op == 0x0A, i + 3 <= rawCommands.count { i += 3 + Int(rawCommands[i + 2]) }
             else { break }
         }
         return simd_float4x4(
