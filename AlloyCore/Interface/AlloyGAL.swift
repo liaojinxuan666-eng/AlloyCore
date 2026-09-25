@@ -15,18 +15,17 @@ public class AlloyGAL {
 
     public init() {}
 
-    // === 帧生命周期 ===
     public func beginFrame() {
         if frameActive { print("AlloyGAL: frame already active") }
         frameActive = true
         frameCommandBuffer.removeAll(keepingCapacity: true)
     }
+
     public func endFrame() {
         if !frameActive { print("AlloyGAL: no active frame") }
         frameActive = false
     }
 
-    // === 资源创建 ===
     public func createVertexBuffer(data: [Float]) -> AlloyBufferHandle {
         let offset = UInt32(vertexPool.count / 12)
         let count = UInt32(data.count / 12)
@@ -36,13 +35,15 @@ public class AlloyGAL {
         return handle
     }
 
-    public func createIndexBuffer(data: [UInt32], vertexBaseOffset: UInt32) -> AlloyBufferHandle {
+    public func createIndexBuffer(data: [UInt32], vertexHandle: AlloyBufferHandle) -> AlloyBufferHandle {
+        guard Int(vertexHandle) < vertexBuffers.count else { return 0xFFFFFFFF }
+        let vertexPoolOffset = vertexBuffers[Int(vertexHandle)].offset
         let offset = UInt32(indexPool.count)
         let count = UInt32(data.count)
         let handle = UInt32(indexBuffers.count)
         indexBuffers.append((offset, count))
         for idx in data {
-            indexPool.append(idx + vertexBaseOffset)
+            indexPool.append(idx + vertexPoolOffset)
         }
         return handle
     }
@@ -53,13 +54,11 @@ public class AlloyGAL {
         return handle
     }
 
-    // === 资源销毁 ===
     public func destroyPipeline(_ handle: AlloyPipelineHandle) {
         guard Int(handle) < pipelines.count else { return }
         pipelines[Int(handle)] = nil
     }
 
-    // === 绑定 ===
     public func bindVertexBuffer(_ handle: AlloyBufferHandle) {
         guard Int(handle) < vertexBuffers.count else { return }
         frameCommandBuffer.append(0x07)
@@ -73,7 +72,6 @@ public class AlloyGAL {
         frameCommandBuffer.append(currentIndexBufferOffset)
     }
 
-    // === 命令录制 ===
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         frameCommandBuffer.append(0x02)
         frameCommandBuffer.append(r.bitPattern)
@@ -105,7 +103,6 @@ public class AlloyGAL {
     }
 
     public func drawIndexed(indexCount: UInt32, startIndex: UInt32, textureID: UInt32) {
-        // 相对偏移 → 全局偏移
         let globalStart = currentIndexBufferOffset + startIndex
         frameCommandBuffer.append(0x01)
         frameCommandBuffer.append(globalStart)
@@ -113,11 +110,9 @@ public class AlloyGAL {
         frameCommandBuffer.append(textureID)
     }
 
-    // === 数据访问 ===
     public func getVertexPool() -> [Float] { vertexPool }
     public func getIndexPool() -> [UInt32] { indexPool }
 
-    // === 提交 ===
     public func submit(to renderer: AlloyRenderer,
                        drawable: CAMetalDrawable,
                        texture0: MTLTexture,
