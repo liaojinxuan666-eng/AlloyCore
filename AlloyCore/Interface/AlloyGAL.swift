@@ -7,7 +7,6 @@ public class AlloyGAL {
     private var indexPool: [UInt32] = []
     private var vertexBuffers: [(offset: UInt32, count: UInt32)] = []
     private var indexBuffers: [(offset: UInt32, count: UInt32)] = []
-    private var currentIndexBufferOffset: UInt32 = 0
     private var pipelines: [AlloyPipelineDescriptor?] = []
 
     private var frameActive = false
@@ -16,13 +15,11 @@ public class AlloyGAL {
     public init() {}
 
     public func beginFrame() {
-        if frameActive { print("AlloyGAL: frame already active") }
         frameActive = true
         frameCommandBuffer.removeAll(keepingCapacity: true)
     }
 
     public func endFrame() {
-        if !frameActive { print("AlloyGAL: no active frame") }
         frameActive = false
     }
 
@@ -59,19 +56,6 @@ public class AlloyGAL {
         pipelines[Int(handle)] = nil
     }
 
-    public func bindVertexBuffer(_ handle: AlloyBufferHandle) {
-        guard Int(handle) < vertexBuffers.count else { return }
-        frameCommandBuffer.append(0x07)
-        frameCommandBuffer.append(vertexBuffers[Int(handle)].offset)
-    }
-
-    public func bindIndexBuffer(_ handle: AlloyBufferHandle) {
-        guard Int(handle) < indexBuffers.count else { return }
-        currentIndexBufferOffset = indexBuffers[Int(handle)].offset
-        frameCommandBuffer.append(0x08)
-        frameCommandBuffer.append(currentIndexBufferOffset)
-    }
-
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         frameCommandBuffer.append(0x02)
         frameCommandBuffer.append(r.bitPattern)
@@ -102,8 +86,13 @@ public class AlloyGAL {
         for f in matrix { frameCommandBuffer.append(f.bitPattern) }
     }
 
-    public func drawIndexed(indexCount: UInt32, startIndex: UInt32, textureID: UInt32) {
-        let globalStart = currentIndexBufferOffset + startIndex
+    // drawIndexed 直接接收 iboHandle，内部查表
+    public func drawIndexed(iboHandle: AlloyBufferHandle,
+                            indexCount: UInt32,
+                            firstIndex: UInt32,
+                            textureID: UInt32) {
+        guard Int(iboHandle) < indexBuffers.count else { return }
+        let globalStart = indexBuffers[Int(iboHandle)].offset + firstIndex
         frameCommandBuffer.append(0x01)
         frameCommandBuffer.append(globalStart)
         frameCommandBuffer.append(indexCount)
