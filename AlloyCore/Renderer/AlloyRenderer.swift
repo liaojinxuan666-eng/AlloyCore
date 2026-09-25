@@ -131,7 +131,7 @@ public class AlloyRenderer {
         if binCountsBuffer == nil || binTileCountX != tileCountX || binTileCountY != tileCountY {
             binCountsBuffer = device.makeBuffer(length: numTiles * MemoryLayout<UInt32>.size,
                                                 options: .storageModePrivate)
-            binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size * 2,
+            binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size,
                                               options: .storageModePrivate)
             binTileCountX = tileCountX
             binTileCountY = tileCountY
@@ -147,22 +147,10 @@ public class AlloyRenderer {
         var depthTestEnabled: UInt32 = 1
         var cullMode: UInt32 = 0
 
-        var triangleTexIDs = [UInt32](repeating: 0, count: cachedTriangleCount)
-
         var ci = 0
         while ci < rawCommands.count {
             let op = rawCommands[ci]
             if op == 0x01 {
-                let indexStart = Int(rawCommands[ci+1])
-                let indexCount = Int(rawCommands[ci+2])
-                let texID = rawCommands[ci+3]
-                var t = indexStart
-                while t < indexStart + indexCount {
-                    if t / 3 < triangleTexIDs.count {
-                        triangleTexIDs[t / 3] = texID
-                    }
-                    t += 3
-                }
                 ci += 4
             } else if op == 0x02 {
                 ci += 5
@@ -182,10 +170,6 @@ public class AlloyRenderer {
                 break
             }
         }
-
-        let texIDBuffer = device.makeBuffer(bytes: triangleTexIDs,
-                                            length: triangleTexIDs.count * MemoryLayout<UInt32>.size,
-                                            options: .storageModeShared)
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
@@ -225,11 +209,10 @@ public class AlloyRenderer {
             enc.setComputePipelineState(binningPipeline)
             enc.setBuffer(outVerts, offset: 0, index: 0)
             enc.setBuffer(outIndices, offset: 0, index: 1)
-            enc.setBuffer(texIDBuffer, offset: 0, index: 2)
-            enc.setBuffer(binCounts, offset: 0, index: 3)
-            enc.setBuffer(binData, offset: 0, index: 4)
-            enc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 5)
-            enc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 6)
+            enc.setBuffer(binCounts, offset: 0, index: 2)
+            enc.setBuffer(binData, offset: 0, index: 3)
+            enc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 4)
+            enc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 5)
             let w = binningPipeline.threadExecutionWidth
             let slotCount = cachedTriangleCount * 2
             enc.dispatchThreads(MTLSize(width: slotCount, height: 1, depth: 1),
@@ -248,7 +231,6 @@ public class AlloyRenderer {
             enc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(texture0, index: 1)
-            enc.setTexture(texture1, index: 2)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
