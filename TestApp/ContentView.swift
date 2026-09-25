@@ -15,10 +15,12 @@ struct MetalView: UIViewRepresentable {
         guard let renderer = AlloyRenderer() else { return view }
         context.coordinator.renderer = renderer
 
-        if let device = view.device {
-            context.coordinator.texture0 = TextureHelper.createCheckerboardTexture(device: device, isRed: false)
-            context.coordinator.texture1 = TextureHelper.createCheckerboardTexture(device: device, isRed: true)
-        }
+        let blue = TextureHelper.makeCheckerboardPixels(isRed: false)
+        _ = context.coordinator.gal.createTexture(
+            AlloyTextureDescriptor(width: blue.width, height: blue.height, data: blue.pixels))
+        let red = TextureHelper.makeCheckerboardPixels(isRed: true)
+        _ = context.coordinator.gal.createTexture(
+            AlloyTextureDescriptor(width: red.width, height: red.height, data: red.pixels))
 
         context.coordinator.buildScene()
         context.coordinator.uploadScene(to: renderer)
@@ -35,8 +37,6 @@ struct MetalView: UIViewRepresentable {
 
     class Coordinator: NSObject, MTKViewDelegate {
         var renderer: AlloyRenderer?
-        var texture0: MTLTexture?
-        var texture1: MTLTexture?
         var time: Float = 0.0
         var middleVerts: [Float] = []
 
@@ -132,8 +132,6 @@ struct MetalView: UIViewRepresentable {
 
         func draw(in view: MTKView) {
             guard let renderer = renderer,
-                  let texture0 = texture0,
-                  let texture1 = texture1,
                   let drawable = view.currentDrawable else { return }
 
             let width = Float(drawable.texture.width)
@@ -206,10 +204,7 @@ struct MetalView: UIViewRepresentable {
 
             gal.endFrame()
 
-            if let cmdBuffer = gal.submit(to: renderer,
-                                          drawable: drawable,
-                                          texture0: texture0,
-                                          texture1: texture1) {
+            if let cmdBuffer = gal.submit(to: renderer, drawable: drawable) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
