@@ -38,6 +38,7 @@ struct MetalView: UIViewRepresentable {
         var texture0: MTLTexture?
         var texture1: MTLTexture?
         var time: Float = 0.0
+        var testVertexBaseY: Float = 0
 
         let gal = AlloyGAL()
         var pipelineHandle: AlloyPipelineHandle = 0
@@ -59,6 +60,8 @@ struct MetalView: UIViewRepresentable {
             pso.depthTestEnabled = true
             pso.cullMode = .back
             pipelineHandle = gal.createPipeline(pso)
+
+            testVertexBaseY = gal.getVertexPool()[1]
         }
 
         func buildCubeGrid(offsetX: Float) -> (vertices: [Float], indices: [UInt32]) {
@@ -190,6 +193,9 @@ struct MetalView: UIViewRepresentable {
             gal.setViewport(width: Int(width), height: Int(height))
             gal.bindPipeline(pipelineHandle)
             gal.setTransform(matrix: matrixArray)
+
+            let jitter = Float(sin(time * 5.0)) * 0.1
+            gal.updateVertexBuffer(meshRanges[0].vbo, data: [testVertexBaseY + jitter], offset: 1)
 
             for mesh in meshRanges {
                 gal.drawIndexed(iboHandle: mesh.ibo,
