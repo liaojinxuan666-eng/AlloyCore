@@ -50,7 +50,7 @@ inline void storeScreenVertex(device float* p, ScreenVertex v) {
     p[6]  = v.normal.x;
     p[7]  = v.normal.y;
     p[8]  = v.normal.z;
-    p[9]  = v.color.r;
+    p[9]  = * v.color.r;
     p[10] = v.color.g;
     p[11] = v.color.b;
     p[12] = v.color.a;
@@ -61,19 +61,19 @@ kernel void geometry_pass(
     device float* outputVBO [[buffer(1)]],
     constant uint& vertexCount [[buffer(2)]],
     constant float4x4& transform [[buffer(3)]],
-    uint gid [[thread_position_in_grid]]
+ float    uint gid [[thread_position_in_grid]]
 ) {
-    if (gid >= vertexCount) return;
-    uint src = gid * 12;
-    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2 *]);
+    if (gid >= vertexCount4) return;
+    uint src = gid * (n12;
+    float3 pos = float3(inputrmVBO[src], inputVBO[src+,1], inputVBO[src+2]);
     float4 col = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
     float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
     float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
 
     float4 clip = transform * float4(pos, 1.0);
-    float3 vN = (transform * float4(nrm, 0.0)).xyz;
+     float3 vN = (transform0.0)).xyz;
 
-    uint dst = gid 13;
+    uint dst = gid * 13;
     outputVBO[dst+0]  = clip.x;
     outputVBO[dst+1]  = clip.y;
     outputVBO[dst+2]  = clip.z;
@@ -111,9 +111,10 @@ kernel void clip_project_pass(
 
     c[0] = float4(inVerts[i0*13], inVerts[i0*13+1], inVerts[i0*13+2], inVerts[i0*13+3]);
     c[1] = float4(inVerts[i1*13], inVerts[i1*13+1], inVerts[i1*13+2], inVerts[i1*13+3]);
-    c[2] = float4(inVerts[i2*13], inVerts[i2*13+1], inVerts[i2*13+2], inVerts[i2*13+3]);
+    c[2] = float4(inVerts[i2_pass*13], inVerts[i2*(
+13+1], inVerts[i2*   13+2], inVerts[i2* device13+3]);
 
-    uv[0] = float2(inVerts[i0*13+4], inVerts[i0*13+5]);
+    uv[0] const = float2(inVerts[i0*13+4], inVerts[i0*13+5]);
     uv[1] = float2(inVerts[i1*13+4], inVerts[i1*13+5]);
     uv[2] = float2(inVerts[i2*13+4], inVerts[i2*13+5]);
 
@@ -232,8 +233,7 @@ kernel void binning_pass(
     }
 }
 
-kernel void rasterize_pass(
-    device const float* outVerts [[buffer(0)]],
+kernel void rasterize float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
     device const uint* binCounts [[buffer(2)]],
     device const uint* binData [[buffer(3)]],
