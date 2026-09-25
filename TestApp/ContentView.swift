@@ -50,10 +50,8 @@ struct MetalView: UIViewRepresentable {
 
             for (i, xOffset) in offsets.enumerated() {
                 let grid = buildCubeGrid(offsetX: xOffset)
-
                 let vertexHandle = gal.createVertexBuffer(data: grid.vertices)
                 let indexHandle = gal.createIndexBuffer(data: grid.indices, vertexBaseOffset: vertexHandle)
-
                 meshRanges.append((start: indexHandle, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
             }
 
@@ -199,7 +197,12 @@ struct MetalView: UIViewRepresentable {
                                 textureID: mesh.texID)
             }
 
-            if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
+            gal.endFrame()
+
+            if let cmdBuffer = gal.submit(to: renderer,
+                                          drawable: drawable,
+                                          texture0: texture0,
+                                          texture1: texture1) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
