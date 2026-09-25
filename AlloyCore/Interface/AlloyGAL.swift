@@ -7,6 +7,7 @@ public class AlloyGAL {
     private var indexPool: [UInt32] = []
     private var vertexBuffers: [(offset: UInt32, count: UInt32)] = []
     private var indexBuffers: [(offset: UInt32, count: UInt32)] = []
+    private var indexBufferVertexPoolOffsets: [UInt32] = []
     private var pipelines: [AlloyPipelineDescriptor?] = []
 
     private var frameActive = false
@@ -39,6 +40,7 @@ public class AlloyGAL {
         let count = UInt32(data.count)
         let handle = UInt32(indexBuffers.count)
         indexBuffers.append((offset, count))
+        indexBufferVertexPoolOffsets.append(vertexPoolOffset)
         for idx in data {
             indexPool.append(idx + vertexPoolOffset)
         }
@@ -97,6 +99,87 @@ public class AlloyGAL {
         frameCommandBuffer.append(globalStart)
         frameCommandBuffer.append(indexCount)
         frameCommandBuffer.append(textureID)
+    }
+
+    // MARK: - 动态 buffer 更新（v0.3.0 地基）
+
+    /// 原地覆盖顶点数据。offset 相对 handle 起点，单位是 float。
+    /// 越界在 debug 下断言，release 下静默裁剪，绝不扩容。
+    public func updateVertexBuffer(_ handle: AlloyBufferHandle,
+                                   data: [Float],
+                                   offset: Int = 0) {
+        guard Int(handle) < vertexBuffers.count, !data.isEmpty else { return }
+        let vb = vertexBuffers[Int(handle)]
+        let poolStart = Int(vb.offset) * 12
+        let poolEnd   = poolStart + Int(vb.count) * 12
+
+        let writeStart = poolStart + offset
+        let writeEnd   = writeStart + data.count
+        let clipStart  = max(poolStart, min(writeStart, poolEnd))
+        let clipEnd    = min(poolEnd, max(writeEnd, poolStart))
+
+        guard clipStart < clipEnd else {
+            #if DEBUG
+            assertionFailure("updateVertexBuffer: range out of handle bounds")
+            #endif
+            return
+        }
+
+        let localStart = clipStart - writeStart
+        let localEnd   = localStart + (clipEnd - clipStart)
+        let slice = Array(data[localStart..<localEnd])
+
+        for (i, v) in slice.enumerated() {
+            vertexPool[clipStart + i] = v
+        }
+
+        frameCommandBuffer.append(0x09)
+        frameCommandBuffer.append(UInt32(clipStart))
+        frameCommandBuffer.append(UInt32(slice.count))
+        for f in slice {
+            frameCommandBuffer.append(f.bitPattern)
+        }
+    }
+
+    /// 原地覆盖索引数据。offset 相对 handle 起点，单位是 UInt32。
+    /// data 里的值是局部顶点索引，内部加上 handle 对应的 vertexPoolOffset。
+    public func updateIndexBuffer(_ handle: AlloyBufferHandle,
+                                  data: [UInt32],
+                                  offset: Int = 0) {
+        guard Int(handle) < indexBuffers.count,
+              Int(handle) < indexBufferVertexPoolOffsets.count,
+              !data.isEmpty else { return }
+        let ib = indexBuffers[Int(handle)]
+        let vboOffset = indexBufferVertexPoolOffsets[Int(handle)]
+        let poolStart = Int(ib.offset)
+        let poolEnd   = poolStart + Int(ib.count {
+)
+
+        let writeStart = poolStart + offset
+        let writeEnd   = writeStart + data.count
+        let clipStart  = max(poolStart, min(writeStart, poolEnd))
+        let clipEnd    = min(poolEnd, max(writeEnd, poolStart))
+
+        guard clipStart < clipEnd else {
+            #if DEBUG
+            assertionFailure("updateIndexBuffer: range out of handle bounds")
+            #endif
+            return
+        }
+
+        let localStart = clipStart - writeStart
+        let localEnd   = localStart + (clipEnd - clipStart)
+        let absolute = data[localStart..<localEnd].map { $0 + vboOffset }
+
+        for (i, v) in absolute.enumerated()            indexPool[clipStart + i] = v
+        }
+
+        frameCommandBuffer.append(0x0A)
+        frameCommandBuffer.append(UInt32(clipStart))
+        frameCommandBuffer.append(UInt32(absolute.count))
+        for v in absolute {
+            frameCommandBuffer.append(v)
+        }
     }
 
     public func getVertexPool() -> [Float] { vertexPool }
