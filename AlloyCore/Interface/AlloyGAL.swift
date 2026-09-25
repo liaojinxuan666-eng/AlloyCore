@@ -15,6 +15,7 @@ public class AlloyGAL {
 
     private var frameActive = false
     private var frameCommandBuffer: [UInt32] = []
+    public private(set) var poolVersion: UInt32 = 0
 
     public init() {
         self.device = MTLCreateSystemDefaultDevice()!
