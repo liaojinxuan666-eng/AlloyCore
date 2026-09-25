@@ -135,7 +135,11 @@ public class AlloyGAL {
 
         frameCommandBuffer.append(0x09)
         frameCommandBuffer.append(UInt32(clipStart))
-        frameCommandBuffer }
+        frameCommandBuffer.append(UInt32(slice.count))
+        for f in slice {
+            frameCommandBuffer.append(f.bitPattern)
+        }
+    }
 
     public func updateIndexBuffer(_ handle: AlloyBufferHandle,
                                   data: [UInt32],
