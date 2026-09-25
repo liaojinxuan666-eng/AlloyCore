@@ -79,20 +79,11 @@ public class AlloyRenderer {
         var m: [Float] = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
         var i = 0
         while i < rawCommands.count {
-            let op = rawCommands[i]
-            if op == 0x01 { i += 4 }
-            else if op == 0x02 { i += 5 }
-            else if op == 0x03 { i += 5 }
-            else if op == 0x04 { i += 3 }
-            else if op == 0x07 { i += 2 }
-            else if op == 0x08 { i += 2 }
-            else if op == 0x06 {
+            guard let len = AlloyOpcodeLength.of(rawCommands, at: i) else { break }
+            if rawCommands[i] == AlloyOpcode.setTransform.rawValue {
                 for k in 0..<16 { m[k] = Float(bitPattern: rawCommands[i + 1 + k]) }
-                i += 17
             }
-            else if op == 0x09, i + 3 <= rawCommands.count { i += 3 + Int(rawCommands[i + 2]) }
-            else if op == 0x0A, i + 3 <= rawCommands.count { i += 3 + Int(rawCommands[i + 2]) }
-            else { break }
+            i += len
         }
         return simd_float4x4(
             SIMD4<Float>(m[0], m[1], m[2], m[3]),
