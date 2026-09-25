@@ -38,3 +38,34 @@ public struct AlloyTextureDescriptor {
         self.data = data
     }
 }
+public final class AlloyLog {
+    private static let lock = NSLock()
+    private static var lines: [String] = []
+    private static let maxLines = 8
+    private static var lastFlush: CFTimeInterval = 0
+    private static let logURL: URL? = {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("alloy.log")
+    }()
+
+    public static func log(_ s: String) {
+        let line = s
+        lock.lock()
+        lines.append(line)
+        if lines.count > maxLines { lines.removeFirst() }
+        let now = CACurrentMediaTime()
+        let flush = (now - lastFlush) > 0.1
+        if flush { lastFlush = now }
+        let content = lines.joined(separator: "\n") + "\n"
+        lock.unlock()
+        if flush, let url = logURL {
+            try? content.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    public static func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines
+    }
+}
