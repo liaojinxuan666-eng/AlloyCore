@@ -240,8 +240,10 @@ kernel void rasterize_pass(
     constant uint& screenTileCountX [[buffer(4)]],
     constant uint& depthTestEnabled [[buffer(5)]],
     constant uint& cullMode [[buffer(6)]],
+    device const uint* triTexIDs [[buffer(7)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> tex0 [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
