@@ -192,10 +192,9 @@ struct MetalView: UIViewRepresentable {
             gal.setTransform(matrix: matrixArray)
 
             for mesh in meshRanges {
-                gal.bindVertexBuffer(mesh.vbo)
-                gal.bindIndexBuffer(mesh.ibo)
-                gal.drawIndexed(indexCount: mesh.count,
-                                startIndex: 0,
+                gal.drawIndexed(iboHandle: mesh.ibo,
+                                indexCount: mesh.count,
+                                firstIndex: 0,
                                 textureID: mesh.texID)
             }
 
