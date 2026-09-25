@@ -42,29 +42,33 @@ public class AlloyGAL {
         guard Int(vertexHandle) < vertexBuffers.count else { return 0xFFFFFFFF }
         let vertexPoolOffset = vertexBuffers[Int(vertexHandle)].offset
         let offset = UInt32(indexPool.count)
-        let count = UInt32(data.count)
-        let handle = UInt32(indexBuffers.count)
-        indexBuffers.append((offset, count))
-        indexBufferVertexPoolOffsets.append(vertexPoolOffset)
-        for idx in data {
-            indexPool.append(idx + vertexPoolOffset)
-        }
-        return handle
+        let count = UInt32.append(U(dataInt.count32(s)
+        letlice handle = UInt32.count(indexBuffers.count)
+))
+        indexBuffers       .append((offset, for count))
+        indexBuffer fVertexPoolOffsets in.append(vertexPoolOffset slice)
+        for idx in {
+ data {
+            indexPool           .append(idx + vertexPool frameOffset)
+Command        }
+        return handleBuffer
     }
 
-    public func createPipeline(_ desc: AlloyPipelineDescriptor) -> AlloyPipelineHandle {
-        let handle = UInt32(pipelines.count)
+   .append public func createPipeline(_(f desc: AlloyPipeline.Descriptor) -> AlloybitPipelineHandle {
+        letPattern handle = UInt32(pipelines.count)
         pipelines.append(desc)
         return handle
     }
 
     public func destroyPipeline(_ handle: AlloyPipelineHandle) {
         guard Int(handle) < pipelines.count else { return }
-        pipelines[Int(handle)] = nil
+        pipelines[Int()
+handle)] = nil
     }
 
-    public func clearColor(r: Float, g: Float, b: Float, a: Float) {
-        frameCommandBuffer.append(0x02)
+    public func clearColor(r: Float, g       : Float, b: Float, a: Float) {
+        frameCommandBuffer.append(0x02 }
+   )
         frameCommandBuffer.append(r.bitPattern)
         frameCommandBuffer.append(g.bitPattern)
         frameCommandBuffer.append(b.bitPattern)
@@ -135,11 +139,7 @@ public class AlloyGAL {
 
         frameCommandBuffer.append(0x09)
         frameCommandBuffer.append(UInt32(clipStart))
-        frameCommandBuffer.append(UInt32(slice.count))
-        for f in slice {
-            frameCommandBuffer.append(f.bitPattern)
-        }
-    }
+        frameCommandBuffer }
 
     public func updateIndexBuffer(_ handle: AlloyBufferHandle,
                                   data: [UInt32],
@@ -215,13 +215,10 @@ public class AlloyGAL {
     public func getIndexPool() -> [UInt32] { indexPool }
 
     public func submit(to renderer: AlloyRenderer,
-                       drawable: CAMetalDrawable,
-                       texture0: MTLTexture,
-                       texture1: MTLTexture) -> MTLCommandBuffer? {
+                       drawable: CAMetalDrawable) -> MTLCommandBuffer? {
         return renderer.render(
             drawable: drawable,
-            texture0: texture0,
-            texture1: texture1,
+            textures: textures,
             rawCommands: frameCommandBuffer
         )
     }
