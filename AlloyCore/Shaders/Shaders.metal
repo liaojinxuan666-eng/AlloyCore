@@ -239,7 +239,7 @@ kernel void rasterize_pass(
     constant uint& depthTestEnabled [[buffer(5)]],
     constant uint& cullMode [[buffer(6)]],
     texture2d<float, access::write> output [[texture(0)]],
-    texture2d<float> texture0 [[texture(1)]],
+    texture2d<float> tex0 [[texture(1)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
@@ -301,7 +301,7 @@ kernel void rasterize_pass(
                 float2 uvI = (w * v0.uv * iz0 + u * v1.uv * iz1 + v * v2.uv * iz2) / invZ;
                 float4 colI = w * v0.color + u * v1.color + v * v2.color;
                 float3 nrm = normalize(w * normalize(v0.normal) + u * normalize(v1.normal) + v * normalize(v2.normal));
-                float4 texColor = texture0.sample(texSampler, uvI);
+                float4 texColor = tex0.sample(texSampler, uvI);
                 float intensity = max(dot(nrm, lightDir), 0.2);
                 bestColor = colI * texColor * intensity;
             }
