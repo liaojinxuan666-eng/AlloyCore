@@ -132,6 +132,7 @@ struct MetalView: UIViewRepresentable {
         }
 
         func draw(in view: MTKView) {
+            inflight.wait()
             guard let renderer = renderer,
                   let drawable = view.currentDrawable else { return }
 
