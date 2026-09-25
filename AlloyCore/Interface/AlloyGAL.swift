@@ -10,10 +10,15 @@ public class AlloyGAL {
     private var indexBufferVertexPoolOffsets: [UInt32] = []
     private var pipelines: [AlloyPipelineDescriptor?] = []
 
+    private let device: MTLDevice
+    private var textures: [MTLTexture?] = []
+
     private var frameActive = false
     private var frameCommandBuffer: [UInt32] = []
 
-    public init() {}
+    public init() {
+        self.device = MTLCreateSystemDefaultDevice()!
+    }
 
     public func beginFrame() {
         frameActive = true
@@ -173,6 +178,37 @@ public class AlloyGAL {
         for v in absolute {
             frameCommandBuffer.append(v)
         }
+    }
+
+    // MARK: - 纹理（v0.3.0 地基）
+
+    public func createTexture(_ desc: AlloyTextureDescriptor) -> AlloyTextureHandle {
+        let mtlDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: desc.width,
+            height: desc.height,
+            mipmapped: false)
+        mtlDesc.usage = [.shaderRead]
+        guard let tex = device.makeTexture(descriptor: mtlDesc) else { return 0xFFFFFFFF }
+        if let data = desc.data {
+            tex.replace(region: MTLRegionMake2D(0, 0, desc.width, desc.height),
+                        mipmapLevel: 0,
+                        withBytes: data,
+                        bytesPerRow: desc.width * 4)
+        }
+        let handle = UInt32(textures.count)
+        textures.append(tex)
+        return handle
+    }
+
+    public func destroyTexture(_ handle: AlloyTextureHandle) {
+        guard Int(handle) < textures.count else { return }
+        textures[Int(handle)] = nil
+    }
+
+    public func getTexture(_ handle: AlloyTextureHandle) -> MTLTexture? {
+        guard Int(handle) < textures.count else { return nil }
+        return textures[Int(handle)]
     }
 
     public func getVertexPool() -> [Float] { vertexPool }
