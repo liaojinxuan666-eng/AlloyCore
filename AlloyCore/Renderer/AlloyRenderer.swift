@@ -109,7 +109,8 @@ public class AlloyRenderer {
               let clipSpaceBuf = cachedClipSpaceBuffer,
               let outVerts = cachedClipOutputVerts,
               let outIndices = cachedClipOutputIndices,
-              let indexBuffer = cachedIndexBuffer else {
+              let indexBuffer = cachedIndexBuffer,
+              let triTexIDs = cachedTriTexIDs else {
             AlloyLog.log("render skip: buffer nil")
             return nil
         }
