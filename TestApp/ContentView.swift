@@ -51,7 +51,7 @@ struct MetalView: UIViewRepresentable {
             for (i, xOffset) in offsets.enumerated() {
                 let grid = buildCubeGrid(offsetX: xOffset)
                 let vbo = gal.createVertexBuffer(data: grid.vertices)
-                let ibo = gal.createIndexBuffer(data: grid.indices, vertexBaseOffset: vbo)
+                let ibo = gal.createIndexBuffer(data: grid.indices, vertexHandle: vbo)
                 meshRanges.append((vbo: vbo, ibo: ibo, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
             }
 
