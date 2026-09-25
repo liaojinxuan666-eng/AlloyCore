@@ -14,15 +14,16 @@ struct ScreenVertex {
     float4 color;
 };
 
-inline ScreenVertex loadScreenVertex(device const float* vd, uint base, uint local) {
-    uint off = base + local * 13;
+inline ScreenVertex loadFromSlot(device const float* verts, uint inputTriIdx, uint localVertIdx) {
+    uint base = inputTriIdx * 4 * 13;
+    uint off = base + localVertIdx * 13;
     ScreenVertex v;
-    v.position = float2(vd[off], vd[off+1]);
-    v.uv = float2(vd[off+2], vd[off+3]);
-    v.invZ = vd[off+4];
-    v.clipW = vd[off+5];
-    v.normal = float3(vd[off+6], vd[off+7], vd[off+8]);
-    v.color = float4(vd[off+9], vd[off+10], vd[off+11], vd[off+12]);
+    v.position = float2(verts[off], verts[off+1]);
+    v.uv = float2(verts[off+2], verts[off+3]);
+    v.invZ = verts[off+4];
+    v.clipW = verts[off+5];
+    v.normal = float3(verts[off+6], verts[off+7], verts[off+8]);
+    v.color = float4(verts[off+9], verts[off+10], verts[off+11], verts[off+12]);
     return v;
 }
 
@@ -128,9 +129,8 @@ kernel void clip_project_pass(
     col[1] = float4(inVerts[i1*13+9], inVerts[i1*13+10], inVerts[i1*13+11], inVerts[i1*13+12]);
     col[2] = float4(inVerts[i2*13+9], inVerts[i2*13+10], inVerts[i2*13+11], inVerts[i2*13+12]);
 
-    uint baseVert = gid * 4 * 13;
-    uint baseTri = gid * 2 * 3;
-
+    // 每个输入三角形占 2 个输出三角形槽位（每个 3 个 uint）
+    uint baseTri = gid * 6;
     outIndices[baseTri + 0] = 0xFFFFFFFF;
     outIndices[baseTri + 1] = 0xFFFFFFFF;
     outIndices[baseTri + 2] = 0xFFFFFFFF;
@@ -168,16 +168,19 @@ kernel void clip_project_pass(
 
     if (polyCount < 3) return;
 
+    uint baseVert = gid * 4 * 13;
     for (int k = 0; k < polyCount; k++) {
         ScreenVertex sv = makeScreenVertex(polyC[k], polyUV[k], polyN[k], polyCol[k], screenSize);
         device float* p = outVerts + baseVert + k * 13;
         storeScreenVertex(p, sv);
     }
 
+    // 第一个输出三角形
     outIndices[baseTri + 0] = 0;
     outIndices[baseTri + 1] = 1;
     outIndices[baseTri + 2] = 2;
 
+    // 第二个输出三角形（如果有 4 个顶点）
     if (polyCount == 4) {
         outIndices[baseTri + 3] = 0;
         outIndices[baseTri + 4] = 2;
@@ -190,18 +193,20 @@ kernel void binning_pass(
     device const uint* outIndices [[buffer(1)]],
     device atomic_uint* binCounts [[buffer(2)]],
     device uint* binData [[buffer(3)]],
-    constant uint& maxTriangleCount [[buffer(4)]],
+    constant uint& totalOutputSlots [[buffer(4)]],
     constant uint2& screenTileCounts [[buffer(5)]],
     uint gid [[thread_position_in_grid]]
 ) {
-    if (gid >= maxTriangleCount) return;
+    if (gid >= totalOutputSlots) return;
 
     uint o0 = outIndices[gid * 3];
     if (o0 == 0xFFFFFFFF) return;
     uint o1 = outIndices[gid * 3 + 1];
     uint o2 = outIndices[gid * 3 + 2];
 
-    uint base = gid * 4 * 13;
+    uint inputTriIdx = gid / 2;
+    uint base = inputTriIdx * 4 * 13;
+
     float2 p0 = float2(outVerts[base + o0*13], outVerts[base + o0*13 + 1]);
     float2 p1 = float2(outVerts[base + o1*13], outVerts[base + o1*13 + 1]);
     float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1]);
@@ -258,16 +263,16 @@ kernel void rasterize_pass(
     float closestInvZ = -1e9;
 
     for (uint t = 0; t < count; t++) {
-        uint triIdx = binData[tileIdx * MAX_PER_TILE + t];
-        uint o0 = outIndices[triIdx * 3];
+        uint slotIdx = binData[tileIdx * MAX_PER_TILE + t];
+        uint o0 = outIndices[slotIdx * 3];
         if (o0 == 0xFFFFFFFF) continue;
-        uint o1 = outIndices[triIdx * 3 + 1];
-        uint o2 = outIndices[triIdx * 3 + 2];
+        uint o1 = outIndices[slotIdx * 3 + 1];
+        uint o2 = outIndices[slotIdx * 3 + 2];
 
-        uint base = triIdx * 4 * 13;
-        ScreenVertex v0 = loadScreenVertex(outVerts, base, o0);
-        ScreenVertex v1 = loadScreenVertex(outVerts, base, o1);
-        ScreenVertex v2 = loadScreenVertex(outVerts, base, o2);
+        uint inputTriIdx = slotIdx / 2;
+        ScreenVertex v0 = loadFromSlot(outVerts, inputTriIdx, o0);
+        ScreenVertex v1 = loadFromSlot(outVerts, inputTriIdx, o1);
+        ScreenVertex v2 = loadFromSlot(outVerts, inputTriIdx, o2);
 
         float2 s0 = v0.position;
         float2 s1 = v1.position;
