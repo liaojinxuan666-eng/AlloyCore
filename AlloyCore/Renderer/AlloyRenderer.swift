@@ -159,8 +159,11 @@ public class AlloyRenderer {
 
         var ci = 0
         while ci < rawCommands.count {
-            let op = rawCommands[ci]
-            if op == 0x01 {
+            guard let op = AlloyOpcode(rawValue: rawCommands[ci]) else { break }
+            guard let len = AlloyOpcodeLength.of(rawCommands, at: ci) else { break }
+
+            switch op {
+            case .drawIndexed:
                 let globalStart = Int(rawCommands[ci + 1])
                 let count       = Int(rawCommands[ci + 2])
                 let tid         = rawCommands[ci + 3]
@@ -173,27 +176,15 @@ public class AlloyRenderer {
                         for t in 0..<triCount { ptr[triStart + t] = tid }
                     }
                 }
-                ci += 4
-            } else if op == 0x02 {
-                ci += 5
-            } else if op == 0x03 {
-                depthTestEnabled = (rawCommands[ci+1] == 0) ? 0 : 1
-                cullMode = rawCommands[ci+2]
-                ci += 5
-            } else if op == 0x04 {
-                ci += 3
-            } else if op == 0x06 {
-                ci += 17
-            } else if op == 0x07 {
-                ci += 2
-            } else if op == 0x08 {
-                ci += 2
-            } else if op == 0x09 {
-                 guard ci + 3 <= rawCommands.count else { break }
-                 let poolOffset = Int(rawCommands[ci + 1])
-                 let count      = Int(rawCommands[ci + 2])
-                 guard count >= 0, ci + 3 + count <= rawCommands.count else { break }
-                 AlloyLog.log("rx0x09 off=\(poolOffset) n=\(count)")
+
+            case .bindPipeline:
+                depthTestEnabled = (rawCommands[ci + 1] == 0) ? 0 : 1
+                cullMode         = rawCommands[ci + 2]
+
+            case .updateVertexBuffer:
+                let poolOffset = Int(rawCommands[ci + 1])
+                let count      = Int(rawCommands[ci + 2])
+                AlloyLog.log("rx0x09 off=\(poolOffset) n=\(count)")
                 let capacity   = inputVBO.length / MemoryLayout<Float>.size
                 if poolOffset >= 0, poolOffset + count <= capacity {
                     let ptr = inputVBO.contents().bindMemory(to: Float.self, capacity: capacity)
@@ -201,24 +192,25 @@ public class AlloyRenderer {
                         ptr[poolOffset + k] = Float(bitPattern: rawCommands[ci + 3 + k])
                     }
                 }
-                ci += 3 + count
-            } else if op == 0x0A {
-                 guard ci + 3 <= rawCommands.count else { break }
-                 let poolOffset = Int(rawCommands[ci + 1])
-                 let count      = Int(rawCommands[ci + 2])
-                 guard count >= 0, ci + 3 + count <= rawCommands.count else { break }
-                 AlloyLog.log("rx0x0A off=\(poolOffset) n=\(count)")
-                 let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
-                 if poolOffset >= 0, poolOffset + count <= capacity {
+
+            case .updateIndexBuffer:
+                let poolOffset = Int(rawCommands[ci + 1])
+                let count      = Int(rawCommands[ci + 2])
+                AlloyLog.log("rx0x0A off=\(poolOffset) n=\(count)")
+                let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
+                if poolOffset >= 0, poolOffset + count <= capacity {
                     let ptr = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: capacity)
                     for k in 0..<count {
                         ptr[poolOffset + k] = rawCommands[ci + 3 + k]
                     }
                 }
-                ci += 3 + count
-            } else {
+
+            case .clearColor, .setViewport, .setTransform,
+                 .bindVertexBuffer, .bindIndexBuffer, .computeDispatch:
                 break
             }
+
+            ci += len
         }
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
