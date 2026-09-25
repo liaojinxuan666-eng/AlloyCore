@@ -185,13 +185,13 @@ public class AlloyRenderer {
                 }
                 ci += 3 + count
             } else if op == 0x0A {
-                guard ci + 3 <= rawCommands.count else { break }
-                let poolOffset = Int(rawCommands[ci + 1])
-                let count      = Int(rawCommands[ci + 2])
-                guard count >= 0, ci + 3 + count <= rawCommands.count else { break }
-                AlloyLog.log("rx0x0A off=\(poolOffset) n=\(count)")
-                let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
-                if poolOffset >= 0, poolOffset + count <= capacity {
+                 guard ci + 3 <= rawCommands.count else { break }
+                 let poolOffset = Int(rawCommands[ci + 1])
+                 let count      = Int(rawCommands[ci + 2])
+                 guard count >= 0, ci + 3 + count <= rawCommands.count else { break }
+                 AlloyLog.log("rx0x0A off=\(poolOffset) n=\(count)")
+                 let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
+                 if poolOffset >= 0, poolOffset + count <= capacity {
                     let ptr = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: capacity)
                     for k in 0..<count {
                         ptr[poolOffset + k] = rawCommands[ci + 3 + k]
