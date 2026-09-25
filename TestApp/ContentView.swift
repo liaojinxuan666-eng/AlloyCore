@@ -192,7 +192,7 @@ struct MetalView: UIViewRepresentable {
             gal.setTransform(matrix: matrixArray)
 
             var modified = middleVerts
-            for i in stride(from: 1, to: modified.count, by: 12) { modified[i] = 5.0 }
+            for i in stride(from: 1, to: modified.count, by: 12) { modified[i] += 1.0 }
                 gal.updateVertexBuffer(meshRanges[1].vbo, data: modified, offset: 0)
 
             for mesh in meshRanges {
