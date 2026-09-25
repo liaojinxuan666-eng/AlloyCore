@@ -193,6 +193,7 @@ struct MetalView: UIViewRepresentable {
 
             var modified = middleVerts
             for i in stride(from: 1, to: modified.count, by: 12) { modified[i] += 1.0 }
+                gal.updateVertexBuffer(meshRanges[1].vbo, data: modified, offset: 0)
 
             for mesh in meshRanges {
                 gal.drawIndexed(iboHandle: mesh.ibo,
@@ -224,8 +225,8 @@ struct PerformanceHUD: View {
                 .font(.system(size: 12, design: .monospaced))
             Text("Tris: \(perf.triangleCount)")
                 .font(.system(size: 12, design: .monospaced))
-                ForEach(Array(AlloyLog.snapshot().enumerated()), id: \.offset) { _, s in
-                Text(s).font(.system(size: 10, design: .monospaced))
+            ForEach(Array(AlloyLog.snapshot().enumerated()), id: \.offset) { _, s in
+                 Text(s).font(.system(size: 10, design: .monospaced))
             }
         }
         .padding(10)
