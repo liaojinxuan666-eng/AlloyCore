@@ -69,6 +69,8 @@ public class AlloyRenderer {
         cachedIndexBuffer = device.makeBuffer(bytes: indexData,
                                               length: indexData.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
+        cachedTriTexIDs = device.makeBuffer(length: tc * MemoryLayout<UInt32>.size,
+                                                options: .storageModeShared)
         cachedVertexCount = vc
         cachedTriangleCount = tc
     }
