@@ -173,6 +173,7 @@ public class AlloyRenderer {
             } else if op == 0x09 {
                 let poolOffset = Int(rawCommands[ci + 1])
                 let count      = Int(rawCommands[ci + 2])
+                AlloyLog.log("rx0x09 off=\(poolOffset) n=\(count)")
                 let capacity   = inputVBO.length / MemoryLayout<Float>.size
                 if poolOffset >= 0, poolOffset + count <= capacity {
                     let ptr = inputVBO.contents().bindMemory(to: Float.self, capacity: capacity)
