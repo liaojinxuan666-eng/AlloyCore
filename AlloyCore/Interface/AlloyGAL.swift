@@ -36,6 +36,7 @@ public class AlloyGAL {
         let handle = UInt32(vertexBuffers.count)
         vertexBuffers.append((offset, count))
         vertexPool.append(contentsOf: data)
+        poolVersion &+= 1
         return handle
     }
 
