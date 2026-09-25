@@ -65,7 +65,7 @@ kernel void geometry_pass(
 ) {
     if (gid >= vertexCount) return;
     uint src = gid * 12;
-    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
+    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2 *]);
     float4 col = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
     float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
     float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
@@ -73,7 +73,7 @@ kernel void geometry_pass(
     float4 clip = transform * float4(pos, 1.0);
     float3 vN = (transform * float4(nrm, 0.0)).xyz;
 
-    uint dst = gid * 13;
+    uint dst = gid 13;
     outputVBO[dst+0]  = clip.x;
     outputVBO[dst+1]  = clip.y;
     outputVBO[dst+2]  = clip.z;
@@ -170,15 +170,13 @@ kernel void clip_project_pass(
         storeScreenVertex(p, sv);
     }
 
-    outInd]);
-
-ices[baseTri + 0] =    0;
+    outIndices[baseTri + 0] = 0;
     outIndices[baseTri + 1] = 1;
     outIndices[baseTri + 2] = 2;
 
-    if (poly floatCount == 4) {
-        outIndices[base minTri + 3] = 0;
-       X outIndices[baseTri + 4] = 2;
+    if (polyCount == 4) {
+        outIndices[baseTri + 3] = 0;
+        outIndices[baseTri + 4] = 2;
         outIndices[baseTri + 5] = 3;
     }
 }
@@ -204,7 +202,9 @@ kernel void binning_pass(
 
     float2 p0 = float2(outVerts[base + o0*13], outVerts[base + o0*13 + 1]);
     float2 p1 = float2(outVerts[base + o1*13], outVerts[base + o1*13 + 1]);
-    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1 = min(min(p0.x, p1.x), p2.x);
+    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1]);
+
+    float minX = min(min(p0.x, p1.x), p2.x);
     float maxX = max(max(p0.x, p1.x), p2.x);
     float minY = min(min(p0.y, p1.y), p2.y);
     float maxY = max(max(p0.y, p1.y), p2.y);
