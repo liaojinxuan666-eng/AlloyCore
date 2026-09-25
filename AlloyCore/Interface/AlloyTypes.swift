@@ -1,4 +1,5 @@
 import simd
+import QuartzCore
 
 public typealias AlloyBufferHandle = UInt32
 public typealias AlloyTextureHandle = UInt32
