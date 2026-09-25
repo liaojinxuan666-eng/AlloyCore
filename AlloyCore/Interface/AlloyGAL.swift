@@ -51,6 +51,7 @@ public class AlloyGAL {
         for idx in data {
             indexPool.append(idx + vertexPoolOffset)
         }
+        poolVersion &+= 1
         return handle
     }
 
