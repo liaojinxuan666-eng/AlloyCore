@@ -20,8 +20,8 @@ struct MetalView: UIViewRepresentable {
             context.coordinator.texture1 = TextureHelper.createCheckerboardTexture(device: device, isRed: true)
         }
 
-        context.coordinator.buildCubeGeometry()
-        context.coordinator.uploadGeometry(to: renderer)
+        context.coordinator.buildScene()
+        context.coordinator.uploadScene(to: renderer)
 
         view.delegate = context.coordinator
         return view
@@ -39,14 +39,33 @@ struct MetalView: UIViewRepresentable {
         var texture1: MTLTexture?
         var time: Float = 0.0
 
-        var vertexData: [Float] = []
-        var indexData: [UInt32] = []
+        let gal = AlloyGAL()
+        var pipelineHandle: AlloyPipelineHandle = 0
+        var meshRanges: [(start: UInt32, count: UInt32, texID: UInt32)] = []
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
-        func buildCubeGeometry() {
-            vertexData.removeAll()
-            indexData.removeAll()
+        func buildScene() {
+            let offsets: [Float] = [-3.0, 0.0, 3.0]
+
+            for (i, xOffset) in offsets.enumerated() {
+                let grid = buildCubeGrid(offsetX: xOffset)
+
+                let vertexHandle = gal.createVertexBuffer(data: grid.vertices)
+                let indexHandle = gal.createIndexBuffer(data: grid.indices, vertexBaseOffset: vertexHandle)
+
+                meshRanges.append((start: indexHandle, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
+            }
+
+            var pso = AlloyPipelineDescriptor()
+            pso.depthTestEnabled = true
+            pso.cullMode = .back
+            pipelineHandle = gal.createPipeline(pso)
+        }
+
+        func buildCubeGrid(offsetX: Float) -> (vertices: [Float], indices: [UInt32]) {
+            var vertices: [Float] = []
+            var indices: [UInt32] = []
 
             let s: Float = 0.15
             let gridN = 3
@@ -76,18 +95,18 @@ struct MetalView: UIViewRepresentable {
                 for iy in 0..<gridN {
                     for iz in 0..<gridN {
                         let offset = SIMD3<Float>(
-                            Float(ix) * spacing - 1.0 + spacing * 0.5,
+                            Float(ix) * spacing - 1.0 + spacing * 0.5 + offsetX,
                             Float(iy) * spacing - 1.0 + spacing * 0.5,
                             Float(iz) * spacing - 1.0 + spacing * 0.5
                         )
 
-                        for (faceIdx, indices) in faceIdxList.enumerated() {
+                        for (faceIdx, indices4) in faceIdxList.enumerated() {
                             let n = faceNormals[faceIdx]
-                            let baseIndex = UInt32(vertexData.count / 12)
+                            let baseIndex = UInt32(vertices.count / 12)
 
                             for k in 0..<4 {
-                                let p = baseVerts[indices[k]] + offset
-                                vertexData.append(contentsOf: [
+                                let p = baseVerts[indices4[k]] + offset
+                                vertices.append(contentsOf: [
                                     p.x, p.y, p.z,
                                     1, 1, 1, 1,
                                     uvs[k].x, uvs[k].y,
@@ -95,18 +114,20 @@ struct MetalView: UIViewRepresentable {
                                 ])
                             }
 
-                            indexData.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
-                            indexData.append(contentsOf: [baseIndex, baseIndex + 2, baseIndex + 3])
+                            indices.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
+                            indices.append(contentsOf: [baseIndex, baseIndex + 2, baseIndex + 3])
                         }
                     }
                 }
             }
 
-            PerformanceMonitor.shared.setTriangleCount(indexData.count / 3)
+            return (vertices, indices)
         }
 
-        func uploadGeometry(to renderer: AlloyRenderer) {
-            renderer.uploadGeometry(vertexData: vertexData, indexData: indexData)
+        func uploadScene(to renderer: AlloyRenderer) {
+            renderer.uploadGeometry(vertexData: gal.getVertexPool(),
+                                    indexData: gal.getIndexPool())
+            PerformanceMonitor.shared.setTriangleCount(gal.getIndexPool().count / 3)
         }
 
         func draw(in view: MTKView) {
@@ -121,7 +142,6 @@ struct MetalView: UIViewRepresentable {
 
             let ax = time * 0.6
             let ay = time * 0.8
-
             let cosAY = cos(ay); let sinAY = sin(ay)
             let cosAX = cos(ax); let sinAX = sin(ax)
 
@@ -151,13 +171,11 @@ struct MetalView: UIViewRepresentable {
                 SIMD4<Float>(0, 0, (2 * zFar * zNear) / (zNear - zFar), 0)
             )
 
-            // 🔥 相机沿 Z 轴来回移动，测试近平面裁剪
-            let cameraZ = -6.0 + sin(time * 0.5) * 4.0
             let translation = simd_float4x4(
                 SIMD4<Float>(1, 0, 0, 0),
                 SIMD4<Float>(0, 1, 0, 0),
                 SIMD4<Float>(0, 0, 1, 0),
-                SIMD4<Float>(0, 0, Float(cameraZ), 1)
+                SIMD4<Float>(0, 0, -8, 1)
             )
 
             let finalMatrix = persp * translation * rotX * rotY
@@ -169,17 +187,17 @@ struct MetalView: UIViewRepresentable {
                 }
             }
 
-            let gal = AlloyGAL()
+            gal.beginFrame()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
             gal.setViewport(width: Int(width), height: Int(height))
-
-            var pso = AlloyPipelineDescriptor()
-            pso.depthTestEnabled = true
-            pso.cullMode = 1
-            gal.bindPipeline(pso)
-
+            gal.bindPipeline(pipelineHandle)
             gal.setTransform(matrix: matrixArray)
-            gal.drawIndexedRange(startIndex: 0, indexCount: UInt32(indexData.count), textureID: 0)
+
+            for mesh in meshRanges {
+                gal.drawIndexed(indexCount: mesh.count,
+                                startIndex: mesh.start,
+                                textureID: mesh.texID)
+            }
 
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable, texture0: texture0, texture1: texture1) {
                 cmdBuffer.present(drawable)
