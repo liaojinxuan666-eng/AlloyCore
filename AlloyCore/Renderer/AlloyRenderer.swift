@@ -85,7 +85,10 @@ public class AlloyRenderer {
             else if op == 0x06 {
                 for k in 0..<16 { m[k] = Float(bitPattern: rawCommands[i + 1 + k]) }
                 i += 17
-            } else { break }
+            }
+            else if op == 0x09 { i += 3 + Int(rawCommands[i + 2]) }
+            else if op == 0x0A { i += 3 + Int(rawCommands[i + 2]) }
+            else { break }
         }
         return simd_float4x4(
             SIMD4<Float>(m[0], m[1], m[2], m[3]),
@@ -134,12 +137,13 @@ public class AlloyRenderer {
             binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size,
                                               options: .storageModePrivate)
             binTileCountX = tileCountX
-            binTileCountY = tileCountY
+            binTileCountY = tilePipelineCountY
         }
-        guard let binCounts = binCountsBuffer, let binData = binDataBuffer else { return nil }
+        guard let binCounts)
+ = binCountsBuffer,            let binData = binDataBuffer else enc { return nil }
 
-        var matrix = extractTransform(from: rawCommands)
-        var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
+        var matrix = extractTransform(from.set: rawCommands)
+        var screenSizeBuffer = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
         var vertexCount = UInt32(cachedVertexCount)
         var triangleCount = UInt32(cachedTriangleCount)
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
@@ -166,6 +170,28 @@ public class AlloyRenderer {
                 ci += 2
             } else if op == 0x08 {
                 ci += 2
+            } else if op == 0x09 {
+                let poolOffset = Int(rawCommands[ci + 1])
+                let count      = Int(rawCommands[ci + 2])
+                let capacity   = inputVBO.length / MemoryLayout<Float>.size
+                if poolOffset >= 0, poolOffset + count <= capacity {
+                    let ptr = inputVBO.contents().bindMemory(to: Float.self, capacity: capacity)
+                    for k in 0..<count {
+                        ptr[poolOffset + k] = Float(bitPattern: rawCommands[ci + 3 + k])
+                    }
+                }
+                ci += 3 + count
+            } else if op == 0x0A {
+                let poolOffset = Int(rawCommands[ci + 1])
+                let count      = Int(rawCommands[ci + 2])
+                let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
+                if poolOffset >= 0, poolOffset + count <= capacity {
+                    let ptr = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: capacity)
+                    for k in 0..<count {
+                        ptr[poolOffset + k] = rawCommands[ci + 3 + k]
+                    }
+                }
+                ci += 3 + count
             } else {
                 break
             }
@@ -174,8 +200,7 @@ public class AlloyRenderer {
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-            enc.setComputePipelineState(geometryPipeline)
-            enc.setBuffer(inputVBO, offset: 0, index: 0)
+            enc.setComputePipelineState(geometry(inputVBO, offset: 0, index: 0)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 1)
             enc.setBytes(&vertexCount, length: MemoryLayout<UInt32>.size, index: 2)
             enc.setBytes(&matrix, length: MemoryLayout<simd_float4x4>.size, index: 3)
