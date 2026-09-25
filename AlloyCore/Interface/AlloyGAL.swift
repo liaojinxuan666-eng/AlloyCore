@@ -3,48 +3,48 @@ import simd
 import QuartzCore
 
 public class AlloyGAL {
-    // === 资源池 ===
     private var vertexPool: [Float] = []
     private var indexPool: [UInt32] = []
+    private var vertexBuffers: [(offset: UInt32, count: UInt32)] = []
+    private var indexBuffers: [(offset: UInt32, count: UInt32)] = []
+    private var currentIndexBufferOffset: UInt32 = 0
     private var pipelines: [AlloyPipelineDescriptor?] = []
 
-    // === 帧状态 ===
     private var frameActive = false
     private var frameCommandBuffer: [UInt32] = []
 
     public init() {}
 
     // === 帧生命周期 ===
-
     public func beginFrame() {
-        if frameActive {
-            print("AlloyGAL: beginFrame called while a frame is already active")
-        }
+        if frameActive { print("AlloyGAL: frame already active") }
         frameActive = true
         frameCommandBuffer.removeAll(keepingCapacity: true)
     }
-
     public func endFrame() {
-        if !frameActive {
-            print("AlloyGAL: endFrame called with no active frame")
-        }
+        if !frameActive { print("AlloyGAL: no active frame") }
         frameActive = false
     }
 
     // === 资源创建 ===
-
     public func createVertexBuffer(data: [Float]) -> AlloyBufferHandle {
         let offset = UInt32(vertexPool.count / 12)
+        let count = UInt32(data.count / 12)
+        let handle = UInt32(vertexBuffers.count)
+        vertexBuffers.append((offset, count))
         vertexPool.append(contentsOf: data)
-        return offset
+        return handle
     }
 
     public func createIndexBuffer(data: [UInt32], vertexBaseOffset: UInt32) -> AlloyBufferHandle {
         let offset = UInt32(indexPool.count)
+        let count = UInt32(data.count)
+        let handle = UInt32(indexBuffers.count)
+        indexBuffers.append((offset, count))
         for idx in data {
             indexPool.append(idx + vertexBaseOffset)
         }
-        return offset
+        return handle
     }
 
     public func createPipeline(_ desc: AlloyPipelineDescriptor) -> AlloyPipelineHandle {
@@ -54,14 +54,26 @@ public class AlloyGAL {
     }
 
     // === 资源销毁 ===
-
     public func destroyPipeline(_ handle: AlloyPipelineHandle) {
         guard Int(handle) < pipelines.count else { return }
         pipelines[Int(handle)] = nil
     }
 
-    // === 命令录制 ===
+    // === 绑定 ===
+    public func bindVertexBuffer(_ handle: AlloyBufferHandle) {
+        guard Int(handle) < vertexBuffers.count else { return }
+        frameCommandBuffer.append(0x07)
+        frameCommandBuffer.append(vertexBuffers[Int(handle)].offset)
+    }
 
+    public func bindIndexBuffer(_ handle: AlloyBufferHandle) {
+        guard Int(handle) < indexBuffers.count else { return }
+        currentIndexBufferOffset = indexBuffers[Int(handle)].offset
+        frameCommandBuffer.append(0x08)
+        frameCommandBuffer.append(currentIndexBufferOffset)
+    }
+
+    // === 命令录制 ===
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         frameCommandBuffer.append(0x02)
         frameCommandBuffer.append(r.bitPattern)
@@ -89,25 +101,23 @@ public class AlloyGAL {
     public func setTransform(matrix: [Float]) {
         guard matrix.count == 16 else { return }
         frameCommandBuffer.append(0x06)
-        for f in matrix {
-            frameCommandBuffer.append(f.bitPattern)
-        }
+        for f in matrix { frameCommandBuffer.append(f.bitPattern) }
     }
 
     public func drawIndexed(indexCount: UInt32, startIndex: UInt32, textureID: UInt32) {
+        // 相对偏移 → 全局偏移
+        let globalStart = currentIndexBufferOffset + startIndex
         frameCommandBuffer.append(0x01)
-        frameCommandBuffer.append(startIndex)
+        frameCommandBuffer.append(globalStart)
         frameCommandBuffer.append(indexCount)
         frameCommandBuffer.append(textureID)
     }
 
     // === 数据访问 ===
-
     public func getVertexPool() -> [Float] { vertexPool }
     public func getIndexPool() -> [UInt32] { indexPool }
 
     // === 提交 ===
-
     public func submit(to renderer: AlloyRenderer,
                        drawable: CAMetalDrawable,
                        texture0: MTLTexture,
