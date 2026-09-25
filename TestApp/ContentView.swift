@@ -224,6 +224,9 @@ struct PerformanceHUD: View {
                 .font(.system(size: 12, design: .monospaced))
             Text("Tris: \(perf.triangleCount)")
                 .font(.system(size: 12, design: .monospaced))
+                ForEach(Array(AlloyLog.snapshot().enumerated()), id: \.offset) { _, s in
+                Text(s).font(.system(size: 10, design: .monospaced))
+            }
         }
         .padding(10)
         .background(Color.black.opacity(0.6))
