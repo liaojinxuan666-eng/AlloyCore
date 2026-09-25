@@ -85,7 +85,7 @@ kernel void geometry_pass(
     outputVBO[dst+8]  = vN.z;
     outputVBO[dst+9]  = col.r;
     outputVBO[dst+10] = col.g;
-    outputVBO[dst+110] = col.b;
+    outputVBO[dst+11] = col.b;
     outputVBO[dst+12] = col.a;
 }
 
