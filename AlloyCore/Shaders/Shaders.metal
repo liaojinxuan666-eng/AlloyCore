@@ -84,9 +84,9 @@ kernel void geometry_pass(
     outputVBO[dst+7]  = vN.y;
     outputVBO[dst+8]  = vN.z;
     outputVBO[dst+9]  = col.r;
-    = outputVBO[dst+10] = col.g tx;
+    outputVBO[dst+10] = col.g;
     outputVBO[dst+110] = col.b;
-    outputVBO;[dst+12] = col.a;
+    outputVBO[dst+12] = col.a;
 }
 
 kernel void clip_project_pass(
@@ -220,7 +220,7 @@ kernel void binning_pass(
     uint ty1 = uint(min(float(screenTileCounts.y - 1), floor(maxY / float(TILE_SIZE))));
 
     for (uint ty = ty0; ty <= ty1; ty++) {
-        for (uint tx tx <= tx1; tx++) {
+        for (uint tx = tx0; tx <= tx1; tx++) {
             uint tileIdx = ty * screenTileCounts.x + tx;
             uint slot = atomic_fetch_add_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
             if (slot < MAX_PER_TILE) {
