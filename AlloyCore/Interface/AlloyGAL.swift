@@ -3,24 +3,35 @@ import simd
 import QuartzCore
 
 public class AlloyGAL {
+    // === 资源池 ===
     private var vertexPool: [Float] = []
     private var indexPool: [UInt32] = []
-    private var pipelines: [AlloyPipelineDescriptor] = []
-    private var commandBuffer: [UInt32] = []
+    private var pipelines: [AlloyPipelineDescriptor?] = []
+
+    // === 帧状态 ===
+    private var frameActive = false
+    private var frameCommandBuffer: [UInt32] = []
 
     public init() {}
 
+    // === 帧生命周期 ===
+
     public func beginFrame() {
-        commandBuffer.removeAll(keepingCapacity: true)
+        if frameActive {
+            print("AlloyGAL: beginFrame called while a frame is already active")
+        }
+        frameActive = true
+        frameCommandBuffer.removeAll(keepingCapacity: true)
     }
 
-    public func resetResources() {
-        vertexPool.removeAll()
-        indexPool.removeAll()
-        pipelines.removeAll()
+    public func endFrame() {
+        if !frameActive {
+            print("AlloyGAL: endFrame called with no active frame")
+        }
+        frameActive = false
     }
 
-    // === 资源 ===
+    // === 资源创建 ===
 
     public func createVertexBuffer(data: [Float]) -> AlloyBufferHandle {
         let offset = UInt32(vertexPool.count / 12)
@@ -42,64 +53,70 @@ public class AlloyGAL {
         return handle
     }
 
-    public func getPipeline(_ handle: AlloyPipelineHandle) -> AlloyPipelineDescriptor? {
-        guard Int(handle) < pipelines.count else { return nil }
-        return pipelines[Int(handle)]
+    // === 资源销毁 ===
+
+    public func destroyPipeline(_ handle: AlloyPipelineHandle) {
+        guard Int(handle) < pipelines.count else { return }
+        pipelines[Int(handle)] = nil
     }
 
-    // === 状态 ===
+    // === 命令录制 ===
 
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
-        commandBuffer.append(0x02)
-        commandBuffer.append(r.bitPattern)
-        commandBuffer.append(g.bitPattern)
-        commandBuffer.append(b.bitPattern)
-        commandBuffer.append(a.bitPattern)
+        frameCommandBuffer.append(0x02)
+        frameCommandBuffer.append(r.bitPattern)
+        frameCommandBuffer.append(g.bitPattern)
+        frameCommandBuffer.append(b.bitPattern)
+        frameCommandBuffer.append(a.bitPattern)
     }
 
     public func bindPipeline(_ handle: AlloyPipelineHandle) {
-        guard let desc = getPipeline(handle) else { return }
-        commandBuffer.append(0x03)
-        commandBuffer.append(desc.depthTestEnabled ? 1 : 0)
-        commandBuffer.append(desc.cullMode.rawValue)
-        commandBuffer.append(desc.blendEnabled ? 1 : 0)
-        commandBuffer.append(desc.shaderID)
+        guard Int(handle) < pipelines.count,
+              let desc = pipelines[Int(handle)] else { return }
+        frameCommandBuffer.append(0x03)
+        frameCommandBuffer.append(desc.depthTestEnabled ? 1 : 0)
+        frameCommandBuffer.append(desc.cullMode.rawValue)
+        frameCommandBuffer.append(desc.blendEnabled ? 1 : 0)
+        frameCommandBuffer.append(desc.shaderID)
     }
 
     public func setViewport(width: Int, height: Int) {
-        commandBuffer.append(0x04)
-        commandBuffer.append(Float(width).bitPattern)
-        commandBuffer.append(Float(height).bitPattern)
+        frameCommandBuffer.append(0x04)
+        frameCommandBuffer.append(Float(width).bitPattern)
+        frameCommandBuffer.append(Float(height).bitPattern)
     }
 
     public func setTransform(matrix: [Float]) {
         guard matrix.count == 16 else { return }
-        commandBuffer.append(0x06)
+        frameCommandBuffer.append(0x06)
         for f in matrix {
-            commandBuffer.append(f.bitPattern)
+            frameCommandBuffer.append(f.bitPattern)
         }
     }
 
-    // === 绘制 ===
-
     public func drawIndexed(indexCount: UInt32, startIndex: UInt32, textureID: UInt32) {
-        commandBuffer.append(0x01)
-        commandBuffer.append(startIndex)
-        commandBuffer.append(indexCount)
-        commandBuffer.append(textureID)
+        frameCommandBuffer.append(0x01)
+        frameCommandBuffer.append(startIndex)
+        frameCommandBuffer.append(indexCount)
+        frameCommandBuffer.append(textureID)
     }
 
-    // === 提交 ===
+    // === 数据访问 ===
 
     public func getVertexPool() -> [Float] { vertexPool }
     public func getIndexPool() -> [UInt32] { indexPool }
 
-    public func submit(to renderer: AlloyRenderer, drawable: CAMetalDrawable, texture0: MTLTexture, texture1: MTLTexture) -> MTLCommandBuffer? {
+    // === 提交 ===
+
+    public func submit(to renderer: AlloyRenderer,
+                       drawable: CAMetalDrawable,
+                       texture0: MTLTexture,
+                       texture1: MTLTexture) -> MTLCommandBuffer? {
         return renderer.render(
             drawable: drawable,
             texture0: texture0,
             texture1: texture1,
-            rawCommands: commandBuffer
+            rawCommands: frameCommandBuffer
         )
     }
 }
