@@ -185,6 +185,7 @@ public class AlloyRenderer {
             } else if op == 0x0A {
                 let poolOffset = Int(rawCommands[ci + 1])
                 let count      = Int(rawCommands[ci + 2])
+                AlloyLog.log("rx0x0A off=\(poolOffset) n=\(count)")
                 let capacity   = indexBuffer.length / MemoryLayout<UInt32>.size
                 if poolOffset >= 0, poolOffset + count <= capacity {
                     let ptr = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: capacity)
