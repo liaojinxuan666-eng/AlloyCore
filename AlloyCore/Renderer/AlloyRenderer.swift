@@ -162,7 +162,6 @@ public class AlloyRenderer {
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
-        // Pass 1: 模型空间 → 裁剪空间
         if let geoEnc = cmdBuffer.makeComputeCommandEncoder() {
             geoEnc.setComputePipelineState(geometryPipeline)
             geoEnc.setBuffer(inputVBO, offset: 0, index: 0)
@@ -175,7 +174,6 @@ public class AlloyRenderer {
             geoEnc.endEncoding()
         }
 
-        // Pass 2: 近平面裁剪 + 投影
         if let clipEnc = cmdBuffer.makeComputeCommandEncoder() {
             clipEnc.setComputePipelineState(clipProjectPipeline)
             clipEnc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
@@ -190,13 +188,11 @@ public class AlloyRenderer {
             clipEnc.endEncoding()
         }
 
-        // Pass 3: 清零 bin counts
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
             blit.fill(buffer: binCounts, range: 0..<binCounts.length, value: 0)
             blit.endEncoding()
         }
 
-        // Pass 4: 三角形分箱（每个输入三角形占 2 个输出槽位）
         var totalOutputSlots = UInt32(cachedTriangleCount * 2)
         if let binEnc = cmdBuffer.makeComputeCommandEncoder() {
             binEnc.setComputePipelineState(binningPipeline)
@@ -213,7 +209,6 @@ public class AlloyRenderer {
             binEnc.endEncoding()
         }
 
-        // Pass 5: 光栅化
         if let rasEnc = cmdBuffer.makeComputeCommandEncoder() {
             rasEnc.setComputePipelineState(rasterizePipeline)
             rasEnc.setBuffer(outVerts, offset: 0, index: 0)
@@ -231,15 +226,14 @@ public class AlloyRenderer {
             rasEnc.endEncoding()
         }
 
-        // Pass 6: 上采样到全屏
         if let upEnc = cmdBuffer.makeComputeCommandEncoder() {
             upEnc.setComputePipelineState(upscalePipeline)
             upEnc.setTexture(lowRes, index: 0)
             upEnc.setTexture(drawableTexture, index: 1)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
-            upEnc.dispatchThreads(MTLSize(width: fullWidth, height:)
- fullHeight, depth: 1),
-                                  threadsPerThreadgroup           : tg upEnc.endEncoding()
+            let grid = MTLSize(width: fullWidth, height: fullHeight, depth: 1)
+            upEnc.dispatchThreads(grid, threadsPerThreadgroup: tg)
+            upEnc.endEncoding()
         }
 
         return cmdBuffer
