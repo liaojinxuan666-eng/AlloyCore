@@ -105,12 +105,22 @@ public class AlloyRenderer {
               let clipSpaceBuf = cachedClipSpaceBuffer,
               let outVerts = cachedClipOutputVerts,
               let outIndices = cachedClipOutputIndices,
-              let indexBuffer = cachedIndexBuffer,
-              !rawCommands.isEmpty,
-              cachedVertexCount > 0,
-              cachedTriangleCount > 0,
-              !textures.isEmpty,
-              let tex0 = textures[0] else { return nil }
+              let indexBuffer = cachedIndexBuffer else {
+            AlloyLog.log("render skip: buffer nil")
+            return nil
+        }
+        guard !rawCommands.isEmpty else {
+            AlloyLog.log("render skip: cmds empty")
+            return nil
+        }
+        guard cachedVertexCount > 0, cachedTriangleCount > 0 else {
+            AlloyLog.log("render skip: vc=\(cachedVertexCount) tc=\(cachedTriangleCount)")
+            return nil
+        }
+        guard !textures.isEmpty, let tex0 = textures[0] else {
+            AlloyLog.log("render skip: tex=\(textures.count)")
+            return nil
+        }
 
         let drawableTexture = drawable.texture
         let fullWidth = drawableTexture.width
