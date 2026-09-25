@@ -21,7 +21,6 @@ public class AlloyRenderer {
     var cachedIndexBuffer: MTLBuffer?
     var cachedVertexCount: Int = 0
     var cachedTriangleCount: Int = 0
-    var cachedMaxOutputTriangles: Int = 0
     var binCountsBuffer: MTLBuffer?
     var binDataBuffer: MTLBuffer?
     var binTileCountX: UInt32 = 0
@@ -61,8 +60,6 @@ public class AlloyRenderer {
         let triangleCount = indexData.count / 3
         cachedClipSpaceBuffer = device.makeBuffer(length: vertexCount * 13 * MemoryLayout<Float>.size,
                                                   options: .storageModePrivate)
-        // 每个输入三角形最多 4 个输出顶点，最多 2 个输出三角形
-        cachedMaxOutputTriangles = triangleCount * 2
         cachedClipOutputVerts = device.makeBuffer(length: triangleCount * 4 * 13 * MemoryLayout<Float>.size,
                                                   options: .storageModePrivate)
         cachedClipOutputIndices = device.makeBuffer(length: triangleCount * 2 * 3 * MemoryLayout<UInt32>.size,
@@ -143,7 +140,6 @@ public class AlloyRenderer {
         var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
         var vertexCount = UInt32(cachedVertexCount)
         var triangleCount = UInt32(cachedTriangleCount)
-        var maxOutputTriangles = UInt32(cachedMaxOutputTriangles)
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
         var screenTileCountX = tileCountX
 
@@ -200,17 +196,19 @@ public class AlloyRenderer {
             blit.endEncoding()
         }
 
-        // Pass 4: 三角形分箱
+        // Pass 4: 三角形分箱（每个输入三角形占 2 个输出槽位）
+        var totalOutputSlots = UInt32(cachedTriangleCount * 2)
         if let binEnc = cmdBuffer.makeComputeCommandEncoder() {
             binEnc.setComputePipelineState(binningPipeline)
             binEnc.setBuffer(outVerts, offset: 0, index: 0)
             binEnc.setBuffer(outIndices, offset: 0, index: 1)
             binEnc.setBuffer(binCounts, offset: 0, index: 2)
             binEnc.setBuffer(binData, offset: 0, index: 3)
-            binEnc.setBytes(&maxOutputTriangles, length: MemoryLayout<UInt32>.size, index: 4)
+            binEnc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 4)
             binEnc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 5)
             let w = binningPipeline.threadExecutionWidth
-            binEnc.dispatchThreads(MTLSize(width: cachedMaxOutputTriangles, height: 1, depth: 1),
+            let slotCount = cachedTriangleCount * 2
+            binEnc.dispatchThreads(MTLSize(width: slotCount, height: 1, depth: 1),
                                    threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             binEnc.endEncoding()
         }
@@ -227,7 +225,6 @@ public class AlloyRenderer {
             rasEnc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             rasEnc.setTexture(lowRes, index: 0)
             rasEnc.setTexture(texture0, index: 1)
-            rasEnc.setTexture(texture1, index: 2)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             rasEnc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
@@ -240,9 +237,9 @@ public class AlloyRenderer {
             upEnc.setTexture(lowRes, index: 0)
             upEnc.setTexture(drawableTexture, index: 1)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
-            upEnc.dispatchThreads(MTLSize(width: fullWidth, height: fullHeight, depth: 1),
-                                  threadsPerThreadgroup: tg)
-            upEnc.endEncoding()
+            upEnc.dispatchThreads(MTLSize(width: fullWidth, height:)
+ fullHeight, depth: 1),
+                                  threadsPerThreadgroup           : tg upEnc.endEncoding()
         }
 
         return cmdBuffer
