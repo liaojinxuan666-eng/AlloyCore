@@ -219,6 +219,10 @@ AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
 
     public func submit(to renderer: AlloyRenderer,
                        drawable: CAMetalDrawable) -> MTLCommandBuffer? {
+        if renderer.cachedPoolVersion != poolVersion {
+            renderer.uploadGeometry(vertexData: vertexPool, indexData: indexPool)
+            renderer.cachedPoolVersion = poolVersion
+        }
         return renderer.render(
             drawable: drawable,
             textures: textures,
