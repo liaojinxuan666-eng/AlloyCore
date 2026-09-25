@@ -170,6 +170,18 @@ public class AlloyRenderer {
         while ci < rawCommands.count {
             let op = rawCommands[ci]
             if op == 0x01 {
+                let globalStart = Int(rawCommands[ci + 1])
+                let count       = Int(rawCommands[ci + 2])
+                let tid         = rawCommands[ci + 3]
+                if count > 0 {
+                    let triStart = globalStart / 3
+                    let triCount = count / 3
+                    let cap = triTexIDs.length / MemoryLayout<UInt32>.size
+                    if triStart >= 0 && triStart + triCount <= cap {
+                        let ptr = triTexIDs.contents().bindMemory(to: UInt32.self, capacity: cap)
+                        for t in 0..<triCount { ptr[triStart + t] = tid }
+                    }
+                }
                 ci += 4
             } else if op == 0x02 {
                 ci += 5
