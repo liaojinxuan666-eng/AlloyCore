@@ -4,6 +4,7 @@ import QuartzCore
 public typealias AlloyBufferHandle = UInt32
 public typealias AlloyTextureHandle = UInt32
 public typealias AlloyPipelineHandle = UInt32
+public typealias AlloyComputePipelineHandle = UInt32
 
 public enum AlloyPixelFormat: UInt32 {
     case rgba8Unorm = 0
