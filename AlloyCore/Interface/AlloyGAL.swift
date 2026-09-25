@@ -132,7 +132,7 @@ public class AlloyGAL {
         for (i, v) in slice.enumerated() {
             vertexPool[clipStart + i] = v
         }
-
+AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
         frameCommandBuffer.append(0x09)
         frameCommandBuffer.append(UInt32(clipStart))
         frameCommandBuffer.append(UInt32(slice.count))
