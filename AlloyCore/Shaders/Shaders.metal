@@ -170,13 +170,15 @@ kernel void clip_project_pass(
         storeScreenVertex(p, sv);
     }
 
-    outIndices[baseTri + 0] = 0;
+    outInd]);
+
+ices[baseTri + 0] =    0;
     outIndices[baseTri + 1] = 1;
     outIndices[baseTri + 2] = 2;
 
-    if (polyCount == 4) {
-        outIndices[baseTri + 3] = 0;
-        outIndices[baseTri + 4] = 2;
+    if (poly floatCount == 4) {
+        outIndices[base minTri + 3] = 0;
+       X outIndices[baseTri + 4] = 2;
         outIndices[baseTri + 5] = 3;
     }
 }
@@ -202,9 +204,7 @@ kernel void binning_pass(
 
     float2 p0 = float2(outVerts[base + o0*13], outVerts[base + o0*13 + 1]);
     float2 p1 = float2(outVerts[base + o1*13], outVerts[base + o1*13 + 1]);
-    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1]);
-
-    float minX = min(min(p0.x, p1.x), p2.x);
+    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1 = min(min(p0.x, p1.x), p2.x);
     float maxX = max(max(p0.x, p1.x), p2.x);
     float minY = min(min(p0.y, p1.y), p2.y);
     float maxY = max(max(p0.y, p1.y), p2.y);
@@ -225,6 +225,8 @@ kernel void binning_pass(
             uint slot = atomic_fetch_add_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
             if (slot < MAX_PER_TILE) {
                 binData[tileIdx * MAX_PER_TILE + slot] = gid;
+            } else {
+                atomic_fetch_sub_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
             }
         }
     }
@@ -293,13 +295,15 @@ kernel void rasterize_pass(
         float w = 1.0 - u - v;
 
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            float invZ = w * v0.invZ + u * v1.invZ + v * v2.invZ;
+            float iz0 = v0.invZ;
+            float iz1 = v1.invZ;
+            float iz2 = v2.invZ;
+            float invZ = w * iz0 + u * iz1 + v * iz2;
             bool passes = (depthTestEnabled == 0) || (invZ > closestInvZ);
             if (passes) {
                 closestInvZ = invZ;
-                float iz0 = v0.invZ, iz1 = v1.invZ, iz2 = v2.invZ;
                 float2 uvI = (w * v0.uv * iz0 + u * v1.uv * iz1 + v * v2.uv * iz2) / invZ;
-                float4 colI = w * v0.color + u * v1.color + v * v2.color;
+                float4 colI = (w * v0.color * iz0 + u * v1.color * iz1 + v * v2.color * iz2) / invZ;
                 float3 nrm = normalize(w * normalize(v0.normal) + u * normalize(v1.normal) + v * normalize(v2.normal));
                 float4 texColor = tex0.sample(texSampler, uvI);
                 float intensity = max(dot(nrm, lightDir), 0.2);
