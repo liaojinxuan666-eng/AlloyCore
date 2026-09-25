@@ -210,6 +210,11 @@ struct MetalView: UIViewRepresentable {
             if let cmdBuffer = gal.submit(to: renderer, drawable: drawable) {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
+                cmdBuffer.addCompletedHandler { [weak self] _ in
+                    self?.inflight.signal()
+                }
+            } else {
+                inflight.signal()
             }
 
             PerformanceMonitor.shared.markFrame()
