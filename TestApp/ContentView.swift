@@ -41,7 +41,7 @@ struct MetalView: UIViewRepresentable {
 
         let gal = AlloyGAL()
         var pipelineHandle: AlloyPipelineHandle = 0
-        var meshRanges: [(start: UInt32, count: UInt32, texID: UInt32)] = []
+        var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
@@ -50,9 +50,9 @@ struct MetalView: UIViewRepresentable {
 
             for (i, xOffset) in offsets.enumerated() {
                 let grid = buildCubeGrid(offsetX: xOffset)
-                let vertexHandle = gal.createVertexBuffer(data: grid.vertices)
-                let indexHandle = gal.createIndexBuffer(data: grid.indices, vertexBaseOffset: vertexHandle)
-                meshRanges.append((start: indexHandle, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
+                let vbo = gal.createVertexBuffer(data: grid.vertices)
+                let ibo = gal.createIndexBuffer(data: grid.indices, vertexBaseOffset: vbo)
+                meshRanges.append((vbo: vbo, ibo: ibo, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
             }
 
             var pso = AlloyPipelineDescriptor()
@@ -192,8 +192,10 @@ struct MetalView: UIViewRepresentable {
             gal.setTransform(matrix: matrixArray)
 
             for mesh in meshRanges {
+                gal.bindVertexBuffer(mesh.vbo)
+                gal.bindIndexBuffer(mesh.ibo)
                 gal.drawIndexed(indexCount: mesh.count,
-                                startIndex: mesh.start,
+                                startIndex: 0,
                                 textureID: mesh.texID)
             }
 
