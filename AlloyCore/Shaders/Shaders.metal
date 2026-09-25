@@ -2,7 +2,6 @@
 using namespace metal;
 
 constant int TILE_SIZE = 16;
-constant int MAX_PER_TILE = 256;
 constant float NEAR_W = 0.001;
 
 struct ScreenVertex {
@@ -181,13 +180,12 @@ kernel void clip_project_pass(
     }
 }
 
-kernel void binning_pass(
+kernel void binning_count_pass(
     device const float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
     device atomic_uint* binCounts [[buffer(2)]],
-    device uint* binData [[buffer(3)]],
-    constant uint& totalOutputSlots [[buffer(4)]],
-    constant uint2& screenTileCounts [[buffer(5)]],
+    constant uint& totalOutputSlots [[buffer(3)]],
+    constant uint2& screenTileCounts [[buffer(4)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= totalOutputSlots) return;
@@ -222,11 +220,70 @@ kernel void binning_pass(
     for (uint ty = ty0; ty <= ty1; ty++) {
         for (uint tx = tx0; tx <= tx1; tx++) {
             uint tileIdx = ty * screenTileCounts.x + tx;
-            uint slot = atomic_fetch_add_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
-            if (slot < MAX_PER_TILE) {
-                binData[tileIdx * MAX_PER_TILE + slot] = gid;
-            } else {
-                atomic_fetch_sub_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
+            atomic_fetch_add_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
+        }
+    }
+}
+
+kernel void binning_offset_pass(
+    device const uint* binCounts [[buffer(0)]],
+    device uint* binStarts [[buffer(1)]],
+    constant uint& numTiles [[buffer(2)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid != 0) return;
+    uint sum = 0;
+    for (uint i = 0; i < numTiles; i++) {
+        binStarts[i] = sum;
+        sum += binCounts[i];
+    }
+}
+
+kernel void binning_fill_pass(
+    device const float* outVerts [[buffer(0)]],
+    device const uint* outIndices [[buffer(1)]],
+    device atomic_uint* binWrites [[buffer(2)]],
+    device uint* binData [[buffer(3)]],
+    constant uint& totalOutputSlots [[buffer(4)]],
+    constant uint2& screenTileCounts [[buffer(5)]],
+    constant uint& binDataCapacity [[buffer(6)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= totalOutputSlots) return;
+
+    uint o0 = outIndices[gid * 3];
+    if (o0 == 0xFFFFFFFF) return;
+    uint o1 = outIndices[gid * 3 + 1];
+    uint o2 = outIndices[gid * 3 + 2];
+
+    uint inputTriIdx = gid / 2;
+    uint base = inputTriIdx * 4 * 13;
+
+    float2 p0 = float2(outVerts[base + o0*13], outVerts[base + o0*13 + 1]);
+    float2 p1 = float2(outVerts[base + o1*13], outVerts[base + o1*13 + 1]);
+    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1]);
+
+    float minX = min(min(p0.x, p1.x), p2.x);
+    float maxX = max(max(p0.x, p1.x), p2.x);
+    float minY = min(min(p0.y, p1.y), p2.y);
+    float maxY = max(max(p0.y, p1.y), p2.y);
+
+    float sw = float(screenTileCounts.x * TILE_SIZE);
+    float sh = float(screenTileCounts.y * TILE_SIZE);
+    if (maxX < 0.0 || minX >= sw) return;
+    if (maxY < 0.0 || minY >= sh) return;
+
+    uint tx0 = uint(max(0.0, floor(minX / float(TILE_SIZE))));
+    uint tx1 = uint(min(float(screenTileCounts.x - 1), floor(maxX / float(TILE_SIZE))));
+    uint ty0 = uint(max(0.0, floor(minY / float(TILE_SIZE))));
+    uint ty1 = uint(min(float(screenTileCounts.y - 1), floor(maxY / float(TILE_SIZE))));
+
+    for (uint ty = ty0; ty <= ty1; ty++) {
+        for (uint tx = tx0; tx <= tx1; tx++) {
+            uint tileIdx = ty * screenTileCounts.x + tx;
+            uint slot = atomic_fetch_add_explicit(&binWrites[tileIdx], 1, memory_order_relaxed);
+            if (slot < binDataCapacity) {
+                binData[slot] = gid;
             }
         }
     }
@@ -236,10 +293,11 @@ kernel void rasterize_pass(
     device const float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
     device const uint* binCounts [[buffer(2)]],
-    device const uint* binData [[buffer(3)]],
-    constant uint& screenTileCountX [[buffer(4)]],
-    constant uint& depthTestEnabled [[buffer(5)]],
-    constant uint& cullMode [[buffer(6)]],
+    device const uint* binStarts [[buffer(3)]],
+    device const uint* binData [[buffer(4)]],
+    constant uint& screenTileCountX [[buffer(5)]],
+    constant uint& depthTestEnabled [[buffer(6)]],
+    constant uint& cullMode [[buffer(7)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> tex0 [[texture(1)]],
     uint2 gid [[thread_position_in_grid]],
@@ -250,7 +308,7 @@ kernel void rasterize_pass(
 
     uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
     uint count = binCounts[tileIdx];
-    if (count > MAX_PER_TILE) count = MAX_PER_TILE;
+    uint start = binStarts[tileIdx];
 
     float2 pixel = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
@@ -258,7 +316,7 @@ kernel void rasterize_pass(
     float closestInvZ = -1e9;
 
     for (uint t = 0; t < count; t++) {
-        uint slotIdx = binData[tileIdx * MAX_PER_TILE + t];
+        uint slotIdx = binData[start + t];
         uint o0 = outIndices[slotIdx * 3];
         if (o0 == 0xFFFFFFFF) continue;
         uint o1 = outIndices[slotIdx * 3 + 1];
