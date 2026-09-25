@@ -307,7 +307,8 @@ kernel void rasterize_pass(
                 float2 uvI = (w * v0.uv * iz0 + u * v1.uv * iz1 + v * v2.uv * iz2) / invZ;
                 float4 colI = (w * v0.color * iz0 + u * v1.color * iz1 + v * v2.color * iz2) / invZ;
                 float3 nrm = normalize(w * normalize(v0.normal) + u * normalize(v1.normal) + v * normalize(v2.normal));
-                float4 texColor = tex0.sample(texSampler, uvI);
+                uint tid = triTexIDs[inputTriIdx];
+                float4 texColor = (tid == 1) ? tex1.sample(texSampler, uvI) : tex0.sample(texSampler, uvI);
                 float intensity = max(dot(nrm, lightDir), 0.2);
                 bestColor = colI * texColor * intensity;
             }
