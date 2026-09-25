@@ -129,7 +129,7 @@ public class AlloyRenderer {
         if binCountsBuffer == nil || binTileCountX != tileCountX || binTileCountY != tileCountY {
             binCountsBuffer = device.makeBuffer(length: numTiles * MemoryLayout<UInt32>.size,
                                                 options: .storageModePrivate)
-            binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size,
+            binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size * 2,
                                               options: .storageModePrivate)
             binTileCountX = tileCountX
             binTileCountY = tileCountY
@@ -157,8 +157,41 @@ public class AlloyRenderer {
             }
             else if op == 0x04 { ci += 3 }
             else if op == 0x06 { ci += 17 }
+            else if op == 0x07 { ci += 2 }
+            else if op == 0x08 { ci += 2 }
             else { break }
         }
+
+        var triangleTexIDs = [UInt32](repeating: 0, count: cachedTriangleCount)
+        ci = 0
+        while ci < rawCommands.count {
+            let op = rawCommands[ci]
+            if op == 0x01 {
+                let indexStart = Int(rawCommands[ci+1])
+                let indexCount = Int(rawCommands[ci+2])
+                let texID = rawCommands[ci+3]
+                var t = indexStart
+                while t < indexStart + indexCount {
+                    if t / 3 < triangleTexIDs.count {
+                        triangleTexIDs[t / 3] = texID
+                    }
+                    t += 3
+                }
+                ci += 4
+            }
+            else if op == 0x02 { ci += 5 }
+            else if op == 0x03 { ci += 5 }
+            else if op == 0x04 {  ci += 3 }
+            else if4)
+ op == 0x06 { ci += 17            }
+            else if op == 0x07 { ci ras += 2 }
+            else if op == 0x08Enc { ci += 2 }
+            else { break }
+        }
+
+        let texIDBuffer = device.makeBuffer(bytes: triangleTexIDs,
+                                            length: triangleTexIDs.count * MemoryLayout<UInt32>.size,
+                                            options: .storageModeShared)
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
@@ -198,10 +231,11 @@ public class AlloyRenderer {
             binEnc.setComputePipelineState(binningPipeline)
             binEnc.setBuffer(outVerts, offset: 0, index: 0)
             binEnc.setBuffer(outIndices, offset: 0, index: 1)
-            binEnc.setBuffer(binCounts, offset: 0, index: 2)
-            binEnc.setBuffer(binData, offset: 0, index: 3)
-            binEnc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 4)
-            binEnc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 5)
+            binEnc.setBuffer(texIDBuffer, offset: 0, index: 2)
+            binEnc.setBuffer(binCounts, offset: 0, index: 3)
+            binEnc.setBuffer(binData, offset: 0, index: 4)
+            binEnc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 5)
+            binEnc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 6)
             let w = binningPipeline.threadExecutionWidth
             let slotCount = cachedTriangleCount * 2
             binEnc.dispatchThreads(MTLSize(width: slotCount, height: 1, depth: 1),
@@ -215,11 +249,11 @@ public class AlloyRenderer {
             rasEnc.setBuffer(outIndices, offset: 0, index: 1)
             rasEnc.setBuffer(binCounts, offset: 0, index: 2)
             rasEnc.setBuffer(binData, offset: 0, index: 3)
-            rasEnc.setBytes(&screenTileCountX, length: MemoryLayout<UInt32>.size, index: 4)
-            rasEnc.setBytes(&depthTestEnabled, length: MemoryLayout<UInt32>.size, index: 5)
+            rasEnc.setBytes(&screenTileCountX, length: MemoryLayout<UInt32>.size, index:.setBytes(&depthTestEnabled, length: MemoryLayout<UInt32>.size, index: 5)
             rasEnc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             rasEnc.setTexture(lowRes, index: 0)
             rasEnc.setTexture(texture0, index: 1)
+            rasEnc.setTexture(texture1, index: 2)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             rasEnc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
