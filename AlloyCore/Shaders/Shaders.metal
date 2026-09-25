@@ -29,14 +29,10 @@ inline ScreenVertex loadFromSlot(device const float* verts, uint inputTriIdx, ui
 
 inline ScreenVertex makeScreenVertex(float4 clip, float2 uv, float3 nrm, float4 color, float2 screenSize) {
     ScreenVertex v;
-    if (clip.w > NEAR_W) {
-        float2 ndc = clip.xy / clip.w;
-        v.position = float2((ndc.x + 1.0) * 0.5 * screenSize.x, (1.0 - ndc.y) * 0.5 * screenSize.y);
-        v.invZ = 1.0 / clip.w;
-    } else {
-        v.position = float2(0.0, 0.0);
-        v.invZ = 0.0;
-    }
+    float w = max(clip.w, 0.0001);
+    float2 ndc = clip.xy / w;
+    v.position = float2((ndc.x + 1.0) * 0.5 * screenSize.x, (1.0 - ndc.y) * 0.5 * screenSize.y);
+    v.invZ = 1.0 / w;
     v.uv = uv;
     v.clipW = clip.w;
     v.normal = nrm;
@@ -129,7 +125,6 @@ kernel void clip_project_pass(
     col[1] = float4(inVerts[i1*13+9], inVerts[i1*13+10], inVerts[i1*13+11], inVerts[i1*13+12]);
     col[2] = float4(inVerts[i2*13+9], inVerts[i2*13+10], inVerts[i2*13+11], inVerts[i2*13+12]);
 
-    // 每个输入三角形占 2 个输出三角形槽位（每个 3 个 uint）
     uint baseTri = gid * 6;
     outIndices[baseTri + 0] = 0xFFFFFFFF;
     outIndices[baseTri + 1] = 0xFFFFFFFF;
@@ -175,12 +170,10 @@ kernel void clip_project_pass(
         storeScreenVertex(p, sv);
     }
 
-    // 第一个输出三角形
     outIndices[baseTri + 0] = 0;
     outIndices[baseTri + 1] = 1;
     outIndices[baseTri + 2] = 2;
 
-    // 第二个输出三角形（如果有 4 个顶点）
     if (polyCount == 4) {
         outIndices[baseTri + 3] = 0;
         outIndices[baseTri + 4] = 2;
@@ -279,8 +272,8 @@ kernel void rasterize_pass(
         float2 s2 = v2.position;
 
         float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (cullMode == 1 && cross2D >= 0.0) continue;
-        if (cullMode == 2 && cross2D <= 0.0) continue;
+        if (cullMode == 1 && cross2D <= 0.0) continue;
+        if (cullMode == 2 && cross2D >= 0.0) continue;
 
         float2 e0 = s1 - s0;
         float2 e1 = s2 - s0;
