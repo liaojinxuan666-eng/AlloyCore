@@ -194,7 +194,7 @@ struct MetalView: UIViewRepresentable {
             gal.bindPipeline(pipelineHandle)
             gal.setTransform(matrix: matrixArray)
 
-            let jitter = Float(sin(time * 5.0)) * 0.1
+            let jitter = Float(sin(time * 5.0)) * 1.0
             gal.updateVertexBuffer(meshRanges[0].vbo, data: [testVertexBaseY + jitter], offset: 1)
 
             for mesh in meshRanges {
