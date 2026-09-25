@@ -99,8 +99,7 @@ public class AlloyRenderer {
     }
 
     public func render(drawable: CAMetalDrawable,
-                       texture0: MTLTexture,
-                       texture1: MTLTexture,
+                       textures: [MTLTexture?],
                        rawCommands: [UInt32]) -> MTLCommandBuffer? {
         guard let inputVBO = cachedVertexBuffer,
               let clipSpaceBuf = cachedClipSpaceBuffer,
@@ -109,7 +108,9 @@ public class AlloyRenderer {
               let indexBuffer = cachedIndexBuffer,
               !rawCommands.isEmpty,
               cachedVertexCount > 0,
-              cachedTriangleCount > 0 else { return nil }
+              cachedTriangleCount > 0,
+              !textures.isEmpty,
+              let tex0 = textures[0] else { return nil }
 
         let drawableTexture = drawable.texture
         let fullWidth = drawableTexture.width
@@ -255,7 +256,7 @@ public class AlloyRenderer {
             enc.setBytes(&depthTestEnabled, length: MemoryLayout<UInt32>.size, index: 5)
             enc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             enc.setTexture(lowRes, index: 0)
-            enc.setTexture(texture0, index: 1)
+            enc.setTexture(tex0, index: 1)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
