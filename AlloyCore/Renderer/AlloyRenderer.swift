@@ -137,13 +137,12 @@ public class AlloyRenderer {
             binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size,
                                               options: .storageModePrivate)
             binTileCountX = tileCountX
-            binTileCountY = tilePipelineCountY
+            binTileCountY = tileCountY
         }
-        guard let binCounts)
- = binCountsBuffer,            let binData = binDataBuffer else enc { return nil }
+        guard let binCounts = binCountsBuffer, let binData = binDataBuffer else { return nil }
 
-        var matrix = extractTransform(from.set: rawCommands)
-        var screenSizeBuffer = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
+        var matrix = extractTransform(from: rawCommands)
+        var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
         var vertexCount = UInt32(cachedVertexCount)
         var triangleCount = UInt32(cachedTriangleCount)
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
@@ -200,7 +199,8 @@ public class AlloyRenderer {
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-            enc.setComputePipelineState(geometry(inputVBO, offset: 0, index: 0)
+            enc.setComputePipelineState(geometryPipeline)
+            enc.setBuffer(inputVBO, offset: 0, index: 0)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 1)
             enc.setBytes(&vertexCount, length: MemoryLayout<UInt32>.size, index: 2)
             enc.setBytes(&matrix, length: MemoryLayout<simd_float4x4>.size, index: 3)
