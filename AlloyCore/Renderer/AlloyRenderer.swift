@@ -20,6 +20,7 @@ public class AlloyRenderer {
     var cachedClipOutputIndices: MTLBuffer?
     var cachedIndexBuffer: MTLBuffer?
     var cachedVertexCount: Int = 0
+    var cachedPoolVersion: UInt32 = 0xFFFFFFFF
     var cachedTriangleCount: Int = 0
     var binCountsBuffer: MTLBuffer?
     var binDataBuffer: MTLBuffer?
