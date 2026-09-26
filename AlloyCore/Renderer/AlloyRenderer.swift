@@ -42,6 +42,7 @@ public class AlloyRenderer {
     private var currentComputeHandle: UInt32 = 0xFFFFFFFF
     private var pendingDispatches: [(handle: UInt32, groups: SIMD3<UInt32>, bindings: [(slot: Int, floatOffset: Int)])] = []
     private var pendingComputeBindings: [(slot: Int, floatOffset: Int)] = []
+    public private(set) var passTimings: [AlloyPassTiming] = []
 
     public init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
