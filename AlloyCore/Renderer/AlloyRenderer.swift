@@ -263,10 +263,12 @@ public class AlloyRenderer {
                     enc.setBuffer(inputVBO, offset: 0, index: 0)
                     var t = computeTime
                     enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 1)
+                    var dt: Float = 0.02
+                    enc.setBytes(&dt, length: MemoryLayout<Float>.size, index: 2)
                     var bo = baseOffset
-                    enc.setBytes(&bo, length: MemoryLayout<UInt32>.size, index: 2)
+                    enc.setBytes(&bo, length: MemoryLayout<UInt32>.size, index: 3)
                     var vc = totalThreads
-                    enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 3)
+                    enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 4)
                     let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
                                      height: Int(desc.threadsPerThreadgroup.y),
                                      depth: Int(desc.threadsPerThreadgroup.z))
