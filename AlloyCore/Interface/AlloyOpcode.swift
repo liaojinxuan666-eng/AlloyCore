@@ -9,33 +9,33 @@ import Foundation
 // All payloads are UInt32; floats are encoded via .bitPattern.
 //
 // Opcode table (v0.4.0):
-//   0x01 DRAW_INDEXED         [globalIndexStart][indexCount][textureID]        4
-//   0x02 CLEAR_COLOR          [r][g][b][a]                                     5
-//   0x03 BIND_PIPELINE        [depthTest][cullMode][blend][shaderID]           5
-//   0x04 SET_VIEWPORT         [w][h]                                           3
+//   0x01 DRAW_INDEXED              [globalIndexStart][indexCount][textureID]        4
+//   0x02 CLEAR_COLOR               [r][g][b][a]                                     5
+//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID]           5
+//   0x04 SET_VIEWPORT              [w][h]                                           3
 //   0x05 (unused)
-//   0x06 SET_TRANSFORM        [16 floats as bitPattern]                       17
-//   0x07 BIND_VERTEX_BUFFER   [poolOffset]                                     2
-//   0x08 BIND_INDEX_BUFFER    [poolOffset]                                     2
-//   0x09 UPDATE_VB            [poolOffset][count][data0..dataN]            3 + N
-//   0x0A UPDATE_IB            [poolOffset][count][data0..dataN]            3 + N
-//   0x10 COMPUTE_DISPATCH     (reserved, length TBD in a later step)
-//
-// NOTE: this file is currently READ-ONLY reference. Step 2 will replace the
-// two hand-written while loops in AlloyRenderer.swift with calls into this
-// table. Step 1 only declares the truth.
+//   0x06 SET_TRANSFORM             [16 floats as bitPattern]                       17
+//   0x07 BIND_VERTEX_BUFFER        [poolOffset]                                     2
+//   0x08 BIND_INDEX_BUFFER         [poolOffset]                                     2
+//   0x09 UPDATE_VB                 [poolOffset][count][data0..dataN]            3 + N
+//   0x0A UPDATE_IB                 [poolOffset][count][data0..dataN]            3 + N
+//   0x10 BIND_COMPUTE_PIPELINE     [handle]                                         2
+//   0x11 BIND_COMPUTE_VERTEX_POOL  [slot][byteOffset][byteLength]                   4
+//   0x12 COMPUTE_DISPATCH          [gx][gy][gz]                                     4
 
 public enum AlloyOpcode: UInt32 {
-    case drawIndexed        = 0x01
-    case clearColor         = 0x02
-    case bindPipeline       = 0x03
-    case setViewport        = 0x04
-    case setTransform       = 0x06
-    case bindVertexBuffer   = 0x07
-    case bindIndexBuffer    = 0x08
-    case updateVertexBuffer = 0x09
-    case updateIndexBuffer  = 0x0A
-    case computeDispatch    = 0x10
+    case drawIndexed             = 0x01
+    case clearColor              = 0x02
+    case bindPipeline            = 0x03
+    case setViewport             = 0x04
+    case setTransform            = 0x06
+    case bindVertexBuffer        = 0x07
+    case bindIndexBuffer         = 0x08
+    case updateVertexBuffer      = 0x09
+    case updateIndexBuffer       = 0x0A
+    case bindComputePipeline     = 0x10
+    case bindComputeVertexPool   = 0x11
+    case computeDispatch         = 0x12
 }
 
 public enum AlloyOpcodeLength {
@@ -82,8 +82,14 @@ public enum AlloyOpcodeLength {
             guard i + total <= cmd.count else { return nil }
             return total
 
+        case .bindComputePipeline:
+            return 2
+
+        case .bindComputeVertexPool:
+            return 4
+
         case .computeDispatch:
-            return nil
+            return 4
         }
     }
 
@@ -96,16 +102,18 @@ public enum AlloyOpcodeLength {
     public static func name(of op: UInt32) -> String {
         guard let o = AlloyOpcode(rawValue: op) else { return "UNKNOWN(\(op))" }
         switch o {
-        case .drawIndexed:        return "DRAW_INDEXED"
-        case .clearColor:         return "CLEAR_COLOR"
-        case .bindPipeline:       return "BIND_PIPELINE"
-        case .setViewport:        return "SET_VIEWPORT"
-        case .setTransform:       return "SET_TRANSFORM"
-        case .bindVertexBuffer:   return "BIND_VERTEX_BUFFER"
-        case .bindIndexBuffer:    return "BIND_INDEX_BUFFER"
-        case .updateVertexBuffer: return "UPDATE_VB"
-        case .updateIndexBuffer:  return "UPDATE_IB"
-        case .computeDispatch:    return "COMPUTE_DISPATCH"
+        case .drawIndexed:           return "DRAW_INDEXED"
+        case .clearColor:            return "CLEAR_COLOR"
+        case .bindPipeline:          return "BIND_PIPELINE"
+        case .setViewport:           return "SET_VIEWPORT"
+        case .setTransform:          return "SET_TRANSFORM"
+        case .bindVertexBuffer:      return "BIND_VERTEX_BUFFER"
+        case .bindIndexBuffer:       return "BIND_INDEX_BUFFER"
+        case .updateVertexBuffer:    return "UPDATE_VB"
+        case .updateIndexBuffer:     return "UPDATE_IB"
+        case .bindComputePipeline:   return "BIND_COMPUTE_PIPELINE"
+        case .bindComputeVertexPool: return "BIND_COMPUTE_VERTEX_POOL"
+        case .computeDispatch:       return "COMPUTE_DISPATCH"
         }
     }
 }
