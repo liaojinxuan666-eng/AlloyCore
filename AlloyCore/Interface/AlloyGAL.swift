@@ -128,11 +128,13 @@ public class AlloyGAL {
         frameCommandBuffer.append(handle)
     }
 
-    public func bindComputeVertexPool(slot: Int, byteOffset: Int, byteLength: Int) {
+    public func bindComputeBuffer(slot: Int, handle: AlloyBufferHandle, byteOffsetFloats: Int = 0) {
+        guard Int(handle) < vertexBuffers.count else { return }
+        let poolOffsetFloats = Int(vertexBuffers[Int(handle)].offset) * 12
         frameCommandBuffer.append(AlloyOpcode.bindComputeVertexPool.rawValue)
         frameCommandBuffer.append(UInt32(slot))
-        frameCommandBuffer.append(UInt32(byteOffset))
-        frameCommandBuffer.append(UInt32(byteLength))
+        frameCommandBuffer.append(UInt32(poolOffsetFloats))
+        frameCommandBuffer.append(UInt32(byteOffsetFloats))
     }
 
     public func dispatchCompute(groups: SIMD3<UInt32>) {
