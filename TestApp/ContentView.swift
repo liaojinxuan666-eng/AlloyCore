@@ -39,7 +39,6 @@ struct MetalView: UIViewRepresentable {
         var renderer: AlloyRenderer?
         var time: Float = 0.0
         let inflight = DispatchSemaphore(value: 2)
-        var middleVerts: [Float] = []
 
         let gal = AlloyGAL()
         var pipelineHandle: AlloyPipelineHandle = 0
