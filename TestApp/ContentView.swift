@@ -222,6 +222,7 @@ struct MetalView: UIViewRepresentable {
             }
 
             PerformanceMonitor.shared.markFrame()
+            PerformanceMonitor.shared.setPassTimings(renderer.passTimings)
         }
     }
 }
