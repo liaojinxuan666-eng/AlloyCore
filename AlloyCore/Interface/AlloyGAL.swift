@@ -9,6 +9,8 @@ public class AlloyGAL {
     private var indexBuffers: [(offset: UInt32, count: UInt32)] = []
     private var indexBufferVertexPoolOffsets: [UInt32] = []
     private var pipelines: [AlloyPipelineDescriptor?] = []
+    private var computePipelines: [AlloyComputePipelineDescriptor?] = []
+    public var computeTime: Float = 0
 
     private let device: MTLDevice
     private var textures: [MTLTexture?] = []
