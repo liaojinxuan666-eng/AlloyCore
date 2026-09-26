@@ -9,6 +9,7 @@ class PerformanceMonitor: ObservableObject {
     @Published var fps: Double = 0
     @Published var frameTimeMs: Double = 0
     @Published var triangleCount: Int = 0
+    @Published var passTimings: [AlloyPassTiming] = []
     
     private var lastTimestamp: CFTimeInterval = 0
     private var frameCount: Int = 0
