@@ -315,6 +315,7 @@ public class AlloyRenderer {
         passTimings.append(AlloyPassTiming(name: "geometry", ms: (CACurrentMediaTime() - tGeom) * 1000))
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
+           let tClip = CACurrentMediaTime()
             enc.setComputePipelineState(clipProjectPipeline)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
             enc.setBuffer(indexBuffer, offset: 0, index: 1)
@@ -327,6 +328,7 @@ public class AlloyRenderer {
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
+        passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) * 1000))
 
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
             blit.fill(buffer: binCounts, range: 0..<binCounts.length, value: 0)
