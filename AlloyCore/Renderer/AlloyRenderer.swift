@@ -217,7 +217,10 @@ public class AlloyRenderer {
                 currentComputeHandle = rawCommands[ci + 1]
 
             case .bindComputeVertexPool:
-                break
+                let slot = Int(rawCommands[ci + 1])
+                let poolOffsetFloats = Int(rawCommands[ci + 2])
+                let byteOffsetFloats = Int(rawCommands[ci + 3])
+                pendingComputeBindings.append((slot: slot, floatOffset: poolOffsetFloats + byteOffsetFloats))
 
             case .computeDispatch:
                 let gx = rawCommands[ci + 1]
