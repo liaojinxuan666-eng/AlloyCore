@@ -254,6 +254,7 @@ public class AlloyRenderer {
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
         passTimings.removeAll(keepingCapacity: true)
         
+        let tCompute = CACurrentMediaTime()
         if !pendingDispatches.isEmpty {
             if let enc = cmdBuffer.makeComputeCommandEncoder() {
                 for disp in pendingDispatches {
