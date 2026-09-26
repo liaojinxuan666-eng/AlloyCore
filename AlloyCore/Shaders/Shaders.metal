@@ -337,7 +337,7 @@ kernel void vertex_animate_pass(
 ) {
     if (gid >= count) return;
     uint base = baseOffset + gid * 12;
-    float pv = float(gid / 12) * 0.3;
+    float pv = float(gid / 288) * 0.3;
     float sn = sin(t * 5.0 + pv);
     float so = sin((t - dt) * 5.0 + pv);
     verts[base + 1] += (sn - so) * 0.3;
