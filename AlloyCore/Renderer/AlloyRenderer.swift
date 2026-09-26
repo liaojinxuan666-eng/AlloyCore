@@ -257,20 +257,21 @@ public class AlloyRenderer {
                         state = newState
                     }
                     enc.setComputePipelineState(state)
-                    for (slot, floatOffset) in disp.bindings {
-                        enc.setBuffer(inputVBO, offset: floatOffset * MemoryLayout<Float>.size, index: slot)
-                    }
+                    let baseOffset: UInt32 = disp.bindings.first.map { UInt32($0.floatOffset) } ?? 0
+                    let totalThreads: UInt32 = disp.groups.x
+                    enc.setComputePipelineState(state)
+                    enc.setBuffer(inputVBO, offset: 0, index: 0)
                     var t = computeTime
                     enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 1)
-                    var vc = UInt32(cachedVertexCount)
-                    enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 2)
+                    var bo = baseOffset
+                    enc.setBytes(&bo, length: MemoryLayout<UInt32>.size, index: 2)
+                    var vc = totalThreads
+                    enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 3)
                     let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
                                      height: Int(desc.threadsPerThreadgroup.y),
                                      depth: Int(desc.threadsPerThreadgroup.z))
-                    let groups = MTLSize(width: Int(disp.groups.x),
-                                         height: Int(disp.groups.y),
-                                         depth: Int(disp.groups.z))
-                    enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+                    let threads = MTLSize(width: Int(totalThreads), height: 1, depth: 1)
+                    enc.dispatchThreads(threads, threadsPerThreadgroup: tg)
                 }
                 enc.endEncoding()
             }
