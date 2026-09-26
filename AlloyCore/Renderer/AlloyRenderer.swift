@@ -273,6 +273,9 @@ public class AlloyRenderer {
                     enc.setBytes(&bo, length: MemoryLayout<UInt32>.size, index: 3)
                     var vc = totalThreads
                     enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 4)
+                    if let origin = cachedVertexOriginBuffer {
+                     enc.setBuffer(origin, offset: 0, index: 5)
+                    }
                     let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
                                      height: Int(desc.threadsPerThreadgroup.y),
                                      depth: Int(desc.threadsPerThreadgroup.z))
