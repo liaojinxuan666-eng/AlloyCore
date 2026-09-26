@@ -297,6 +297,7 @@ public class AlloyRenderer {
                 enc.endEncoding()
             }
             pendingDispatches.removeAll(keepingCapacity: true)
+            passTimings.append(AlloyPassTiming(name: "compute", ms: (CACurrentMediaTime() - tCompute) * 1000))
         }
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
