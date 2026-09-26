@@ -312,6 +312,7 @@ public class AlloyRenderer {
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
+        passTimings.append(AlloyPassTiming(name: "geometry", ms: (CACurrentMediaTime() - tGeom) * 1000))
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(clipProjectPipeline)
