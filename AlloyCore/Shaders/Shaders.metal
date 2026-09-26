@@ -330,12 +330,15 @@ kernel void upscale_pass(
 kernel void vertex_animate_pass(
     device float* verts [[buffer(0)]],
     constant float& t [[buffer(1)]],
-    constant uint& baseOffset [[buffer(2)]],
-    constant uint& count [[buffer(3)]],
+    constant float& dt [[buffer(2)]],
+    constant uint& baseOffset [[buffer(3)]],
+    constant uint& count [[buffer(4)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= count) return;
     uint base = baseOffset + gid * 12;
-    float phase = t * 5.0 + float(gid / 12) * 0.3;
-    verts[base + 1] += sin(phase) * 0.3;
+    float pv = float(gid / 12) * 0.3;
+    float sn = sin(t * 5.0 + pv);
+    float so = sin((t - dt) * 5.0 + pv);
+    verts[base + 1] += (sn - so) * 0.3;
 }
