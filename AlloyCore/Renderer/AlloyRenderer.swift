@@ -206,7 +206,8 @@ public class AlloyRenderer {
                 }
 
             case .clearColor, .setViewport, .setTransform,
-                 .bindVertexBuffer, .bindIndexBuffer, .computeDispatch:
+                 .bindVertexBuffer, .bindIndexBuffer,
+                 .bindComputePipeline, .bindComputeVertexPool, .computeDispatch:
                 break
             }
 
