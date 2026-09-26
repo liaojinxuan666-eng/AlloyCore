@@ -47,6 +47,7 @@ public class AlloyRenderer {
               let u = library.makeFunction(name: "upscale_pass") else {
             return nil
         }
+        self.library = library
         do {
             geometryPipeline = try device.makeComputePipelineState(function: g)
             clipProjectPipeline = try device.makeComputePipelineState(function: c)
