@@ -379,6 +379,7 @@ public class AlloyRenderer {
         passTimings.append(AlloyPassTiming(name: "rasterize", ms: (CACurrentMediaTime() - tRaster) * 1000))
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
+            let tUpscale = CACurrentMediaTime()
             enc.setComputePipelineState(upscalePipeline)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(drawableTexture, index: 1)
@@ -387,6 +388,7 @@ public class AlloyRenderer {
             enc.dispatchThreads(grid, threadsPerThreadgroup: tg)
             enc.endEncoding()
         }
+        passTimings.append(AlloyPassTiming(name: "upscale", ms: (CACurrentMediaTime() - tUpscale) * 1000))
 
         return cmdBuffer
     }
