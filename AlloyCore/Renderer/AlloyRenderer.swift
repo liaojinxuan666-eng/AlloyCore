@@ -233,6 +233,40 @@ public class AlloyRenderer {
         }
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
+        
+        if !pendingDispatches.isEmpty {
+            if let enc = cmdBuffer.makeComputeCommandEncoder() {
+                for disp in pendingDispatches {
+                    guard Int(disp.handle) < computePipelines.count,
+                          let desc = computePipelines[Int(disp.handle)] else { continue }
+                    let state: MTLComputePipelineState
+                    if let cached = computePipelineCache[desc.shaderName] {
+                        state = cached
+                    } else {
+                        guard let fn = library.makeFunction(name: desc.shaderName),
+                              let newState = try? device.makeComputePipelineState(function: fn) else {
+                            AlloyLog.log("compute: shader \(desc.shaderName) not found")
+                            continue
+                        }
+                        computePipelineCache[desc.shaderName] = newState
+                        state = newState
+                    }
+                    enc.setComputePipelineState(state)
+                    enc.setBuffer(inputVBO, offset: 0, index: 0)
+                    var t = computeTime
+                    enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 1)
+                    let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
+                                     height: Int(desc.threadsPerThreadgroup.y),
+                                     depth: Int(desc.threadsPerThreadgroup.z))
+                    let groups = MTLSize(width: Int(disp.groups.x),
+                                         height: Int(disp.groups.y),
+                                         depth: Int(disp.groups.z))
+                    enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+                }
+                enc.endEncoding()
+            }
+            pendingDispatches.removeAll(keepingCapacity: true)
+        }
 
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(geometryPipeline)
