@@ -100,6 +100,8 @@ public class AlloyRenderer {
 
     public func render(drawable: CAMetalDrawable,
                        textures: [MTLTexture?],
+                       computePipelines: [AlloyComputePipelineDescriptor?],
+                       computeTime: Float,
                        rawCommands: [UInt32]) -> MTLCommandBuffer? {
         guard let inputVBO = cachedVertexBuffer,
               let clipSpaceBuf = cachedClipSpaceBuffer,
