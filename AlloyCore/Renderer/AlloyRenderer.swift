@@ -30,7 +30,8 @@ public class AlloyRenderer {
     let library: MTLLibrary
     private var computePipelineCache: [String: MTLComputePipelineState] = [:]
     private var currentComputeHandle: UInt32 = 0xFFFFFFFF
-    private var pendingDispatches: [(handle: UInt32, groups: SIMD3<UInt32>)] = []
+    private var pendingDispatches: [(handle: UInt32, groups: SIMD3<UInt32>, bindings: [(slot: Int, floatOffset: Int)])] = []
+    private var pendingComputeBindings: [(slot: Int, floatOffset: Int)] = []
 
     public init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
