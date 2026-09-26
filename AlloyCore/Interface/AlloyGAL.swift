@@ -67,6 +67,17 @@ public class AlloyGAL {
         guard Int(handle) < pipelines.count else { return }
         pipelines[Int(handle)] = nil
     }
+    
+    public func createComputePipeline(_ desc: AlloyComputePipelineDescriptor) -> AlloyComputePipelineHandle {
+        let handle = UInt32(computePipelines.count)
+        computePipelines.append(desc)
+        return handle
+    }
+
+    public func destroyComputePipeline(_ handle: AlloyComputePipelineHandle) {
+        guard Int(handle) < computePipelines.count else { return }
+        computePipelines[Int(handle)] = nil
+    }
 
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         frameCommandBuffer.append(0x02)
