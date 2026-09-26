@@ -120,6 +120,27 @@ public class AlloyGAL {
         frameCommandBuffer.append(indexCount)
         frameCommandBuffer.append(textureID)
     }
+    
+    public func bindComputePipeline(_ handle: AlloyComputePipelineHandle) {
+        guard Int(handle) < computePipelines.count,
+              computePipelines[Int(handle)] != nil else { return }
+        frameCommandBuffer.append(AlloyOpcode.bindComputePipeline.rawValue)
+        frameCommandBuffer.append(handle)
+    }
+
+    public func bindComputeVertexPool(slot: Int, byteOffset: Int, byteLength: Int) {
+        frameCommandBuffer.append(AlloyOpcode.bindComputeVertexPool.rawValue)
+        frameCommandBuffer.append(UInt32(slot))
+        frameCommandBuffer.append(UInt32(byteOffset))
+        frameCommandBuffer.append(UInt32(byteLength))
+    }
+
+    public func dispatchCompute(groups: SIMD3<UInt32>) {
+        frameCommandBuffer.append(AlloyOpcode.computeDispatch.rawValue)
+        frameCommandBuffer.append(groups.x)
+        frameCommandBuffer.append(groups.y)
+        frameCommandBuffer.append(groups.z)
+    }
 
     public func updateVertexBuffer(_ handle: AlloyBufferHandle,
                                    data: [Float],
