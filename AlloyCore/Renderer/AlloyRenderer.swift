@@ -252,6 +252,7 @@ public class AlloyRenderer {
         }
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
+        passTimings.removeAll(keepingCapacity: true)
         
         if !pendingDispatches.isEmpty {
             if let enc = cmdBuffer.makeComputeCommandEncoder() {
