@@ -257,9 +257,13 @@ public class AlloyRenderer {
                         state = newState
                     }
                     enc.setComputePipelineState(state)
-                    enc.setBuffer(inputVBO, offset: 0, index: 0)
+                    for (slot, floatOffset) in disp.bindings {
+                        enc.setBuffer(inputVBO, offset: floatOffset * MemoryLayout<Float>.size, index: slot)
+                    }
                     var t = computeTime
-                    enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 1)
+                    enc.setBytes(&t, length: MemoryLayout<Float>.size, index: 30)
+                    var vc = UInt32(cachedVertexCount)
+                    enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 31)
                     let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
                                      height: Int(desc.threadsPerThreadgroup.y),
                                      depth: Int(desc.threadsPerThreadgroup.z))
