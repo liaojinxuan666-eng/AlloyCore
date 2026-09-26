@@ -44,5 +44,11 @@ class PerformanceMonitor: ObservableObject {
         DispatchQueue.main.async {
             self.triangleCount = count
         }
+        
+        
+    func setPassTimings(_ t: [AlloyPassTiming]) {
+        DispatchQueue.main.async {
+            self.passTimings = t
+        }
     }
 }
