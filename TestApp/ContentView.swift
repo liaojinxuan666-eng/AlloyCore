@@ -200,7 +200,7 @@ struct MetalView: UIViewRepresentable {
             gal.computeTime = time
             gal.bindComputePipeline(computeHandle)
             gal.bindComputeBuffer(slot: 0, handle: meshRanges[1].vbo)
-            gal.dispatchCompute(groups: SIMD3<UInt32>((UInt32(middleVerts.count / 12) + 63) / 64, 1, 1))
+            gal.dispatchCompute(groups: SIMD3<UInt32>(UInt32(middleVerts.count / 12), 1, 1))
 
             for mesh in meshRanges {
                 gal.drawIndexed(iboHandle: mesh.ibo,
