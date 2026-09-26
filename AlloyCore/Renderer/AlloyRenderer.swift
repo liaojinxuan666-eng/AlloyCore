@@ -329,11 +329,13 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) * 1000))
-
+        
+        let tBinning = CACurrentMediaTime()
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
             blit.fill(buffer: binCounts, range: 0..<binCounts.length, value: 0)
             blit.endEncoding()
         }
+        passTimings.append(AlloyPassTiming(name: "binning", ms: (CACurrentMediaTime() - tBinning) * 1000))
 
         var totalOutputSlots = UInt32(cachedTriangleCount * 2)
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
