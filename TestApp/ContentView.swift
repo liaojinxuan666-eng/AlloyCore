@@ -63,6 +63,9 @@ struct MetalView: UIViewRepresentable {
             pso.depthTestEnabled = true
             pso.cullMode = .back
             pipelineHandle = gal.createPipeline(pso)
+            computeHandle = gal.createComputePipeline(
+                AlloyComputePipelineDescriptor(shaderName: "vertex_animate_pass",
+                                               threadsPerThreadgroup: SIMD3<UInt32>(64, 1, 1)))
         }
 
         func buildCubeGrid(offsetX: Float) -> (vertices: [Float], indices: [UInt32]) {
