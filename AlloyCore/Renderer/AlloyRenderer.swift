@@ -212,9 +212,20 @@ public class AlloyRenderer {
                     }
                 }
 
+            case .bindComputePipeline:
+                currentComputeHandle = rawCommands[ci + 1]
+
+            case .bindComputeVertexPool:
+                break
+
+            case .computeDispatch:
+                let gx = rawCommands[ci + 1]
+                let gy = rawCommands[ci + 2]
+                let gz = rawCommands[ci + 3]
+                pendingDispatches.append((currentComputeHandle, SIMD3<UInt32>(gx, gy, gz)))
+
             case .clearColor, .setViewport, .setTransform,
-                 .bindVertexBuffer, .bindIndexBuffer,
-                 .bindComputePipeline, .bindComputeVertexPool, .computeDispatch:
+                 .bindVertexBuffer, .bindIndexBuffer:
                 break
             }
 
