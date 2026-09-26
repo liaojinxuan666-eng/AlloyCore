@@ -73,6 +73,9 @@ public class AlloyRenderer {
                                                   options: .storageModePrivate)
         cachedClipOutputIndices = device.makeBuffer(length: tc * 2 * 3 * MemoryLayout<UInt32>.size,
                                                     options: .storageModePrivate)
+        cachedVertexOriginBuffer = device.makeBuffer(bytes: vertexData,
+                                                     length: vertexData.count * MemoryLayout<Float>.size,
+                                                     options: .storageModeShared)
         cachedIndexBuffer = device.makeBuffer(bytes: indexData,
                                               length: indexData.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
