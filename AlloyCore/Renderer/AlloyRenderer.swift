@@ -299,7 +299,8 @@ public class AlloyRenderer {
             pendingDispatches.removeAll(keepingCapacity: true)
             passTimings.append(AlloyPassTiming(name: "compute", ms: (CACurrentMediaTime() - tCompute) * 1000))
         }
-
+        
+        let tGeom = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(geometryPipeline)
             enc.setBuffer(inputVBO, offset: 0, index: 0)
