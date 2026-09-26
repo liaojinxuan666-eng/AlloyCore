@@ -1,6 +1,7 @@
 import Foundation
 import QuartzCore
 import Combine
+import AlloyCore
 
 class PerformanceMonitor: ObservableObject {
     static let shared = PerformanceMonitor()
