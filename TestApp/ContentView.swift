@@ -55,7 +55,6 @@ struct MetalView: UIViewRepresentable {
                 let vbo = gal.createVertexBuffer(data: grid.vertices)
                 let ibo = gal.createIndexBuffer(data: grid.indices, vertexHandle: vbo)
                 meshRanges.append((vbo: vbo, ibo: ibo, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
-                if i == 1 { middleVerts = grid.vertices }
             }
 
             var pso = AlloyPipelineDescriptor()
