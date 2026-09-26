@@ -39,6 +39,18 @@ public struct AlloyTextureDescriptor {
         self.data = data
     }
 }
+
+public struct AlloyComputePipelineDescriptor {
+    public var shaderName: String
+    public var threadsPerThreadgroup: SIMD3<UInt32>
+
+    public init(shaderName: String,
+                threadsPerThreadgroup: SIMD3<UInt32> = SIMD3<UInt32>(1, 1, 1)) {
+        self.shaderName = shaderName
+        self.threadsPerThreadgroup = threadsPerThreadgroup
+    }
+}
+
 public final class AlloyLog {
     private static let lock = NSLock()
     private static var lines: [String] = []
