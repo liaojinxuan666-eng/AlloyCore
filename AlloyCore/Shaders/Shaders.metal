@@ -329,8 +329,8 @@ kernel void upscale_pass(
 
 kernel void vertex_animate_pass(
     device float* verts [[buffer(0)]],
-    constant float& t [[buffer(30)]],
-    constant uint& vc [[buffer(31)]],
+    constant float& t [[buffer(1)]],
+    constant uint& vc [[buffer(2)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= vc) return;
