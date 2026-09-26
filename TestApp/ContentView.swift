@@ -43,6 +43,7 @@ struct MetalView: UIViewRepresentable {
 
         let gal = AlloyGAL()
         var pipelineHandle: AlloyPipelineHandle = 0
+        var computeHandle: AlloyComputePipelineHandle = 0
         var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
