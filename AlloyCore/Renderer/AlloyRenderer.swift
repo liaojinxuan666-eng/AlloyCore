@@ -2,6 +2,15 @@ import Metal
 import simd
 import QuartzCore
 
+public struct AlloyPassTiming {
+    public let name: String
+    public let ms: Double
+    public init(name: String, ms: Double) {
+        self.name = name
+        self.ms = ms
+    }
+}
+
 public class AlloyRenderer {
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
