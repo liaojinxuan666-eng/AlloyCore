@@ -222,11 +222,12 @@ public class AlloyRenderer {
                 let byteOffsetFloats = Int(rawCommands[ci + 3])
                 pendingComputeBindings.append((slot: slot, floatOffset: poolOffsetFloats + byteOffsetFloats))
 
-            case .computeDispatch:
+           case .computeDispatch:
                 let gx = rawCommands[ci + 1]
                 let gy = rawCommands[ci + 2]
                 let gz = rawCommands[ci + 3]
-                pendingDispatches.append((currentComputeHandle, SIMD3<UInt32>(gx, gy, gz)))
+                pendingDispatches.append((currentComputeHandle, SIMD3<UInt32>(gx, gy, gz), pendingComputeBindings))
+                pendingComputeBindings.removeAll(keepingCapacity: true)
 
             case .clearColor, .setViewport, .setTransform,
                  .bindVertexBuffer, .bindIndexBuffer:
