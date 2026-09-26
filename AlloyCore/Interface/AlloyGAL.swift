@@ -260,6 +260,8 @@ AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
         return renderer.render(
             drawable: drawable,
             textures: textures,
+            computePipelines: computePipelines,
+            computeTime: computeTime,
             rawCommands: frameCommandBuffer
         )
     }
