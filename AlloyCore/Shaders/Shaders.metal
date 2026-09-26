@@ -326,3 +326,15 @@ kernel void upscale_pass(
     float2 uv = (float2(gid) + 0.5) / float2(highRes.get_width(), highRes.get_height());
     highRes.write(lowRes.sample(s, uv), gid);
 }
+
+kernel void vertex_animate_pass(
+    device float* verts [[buffer(0)]],
+    constant float& t [[buffer(30)]],
+    constant uint& vc [[buffer(31)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= vc) return;
+    uint base = gid * 12;
+    float phase = t * 5.0 + float(gid / 12) * 0.3;
+    verts[base + 1] += sin(phase) * 0.3;
+}
