@@ -313,9 +313,9 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "geometry", ms: (CACurrentMediaTime() - tGeom) * 1000))
-
+        
+        let tClip = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-           let tClip = CACurrentMediaTime()
             enc.setComputePipelineState(clipProjectPipeline)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
             enc.setBuffer(indexBuffer, offset: 0, index: 1)
@@ -352,9 +352,9 @@ public class AlloyRenderer {
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
-
+        
+        let tRaster = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-           let tRaster = CACurrentMediaTime()
             enc.setComputePipelineState(rasterizePipeline)
             enc.setBuffer(outVerts, offset: 0, index: 0)
             enc.setBuffer(outIndices, offset: 0, index: 1)
@@ -377,9 +377,9 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "rasterize", ms: (CACurrentMediaTime() - tRaster) * 1000))
-
+        
+        let tUpscale = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-            let tUpscale = CACurrentMediaTime()
             enc.setComputePipelineState(upscalePipeline)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(drawableTexture, index: 1)
