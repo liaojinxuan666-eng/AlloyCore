@@ -240,6 +240,9 @@ struct PerformanceHUD: View {
                 .font(.system(size: 12, design: .monospaced))
             ForEach(Array(AlloyLog.snapshot().enumerated()), id: \.offset) { _, s in
                  Text(s).font(.system(size: 10, design: .monospaced))
+            ForEach(Array(perf.passTimings.enumerated()), id: \.offset) { _, t in
+                  Text(String(format: "  %@: %.2f ms", t.name, t.ms))
+                 .font(.system(size: 10, design: .monospaced))
             }
         }
         .padding(10)
