@@ -73,6 +73,7 @@ public class AlloyRenderer {
             binningPipeline = try device.makeComputePipelineState(function: b)
             binningCountPipeline = try device.makeComputePipelineState(function: bc)
             binningOffsetPipeline = try device.makeComputePipelineState(function: bo)
+            binningFillPipeline = try device.makeComputePipelineState(function: bf)
             rasterizePipeline = try device.makeComputePipelineState(function: r)
             upscalePipeline = try device.makeComputePipelineState(function: u)
         } catch {
