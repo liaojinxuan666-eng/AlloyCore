@@ -181,117 +181,6 @@ kernel void clip_project_pass(
     }
 }
 
-kernel void rasterize_pass(
-    device const float* outVerts [[buffer(0)]],
-    device const uint* outIndices [[buffer(1)]],
-    device const uint* binCounts [[buffer(2)]],
-    device const uint* binData [[buffer(3)]],
-    constant uint& screenTileCountX [[buffer(4)]],
-    constant uint& depthTestEnabled [[buffer(5)]],
-    constant uint& cullMode [[buffer(6)]],
-    device const uint* triTexIDs [[buffer(7)]],
-    device const uint* binStarts [[buffer(8)]],
-    texture2d<float, access::write> output [[texture(0)]],
-    texture2d<float> tex0 [[texture(1)]],
-    texture2d<float> tex1 [[texture(2)]],
-    uint2 gid [[thread_position_in_grid]],
-    uint2 tileOrigin [[threadgroup_position_in_grid]]
-) {
-    constexpr sampler texSampler(mag_filter::linear, min_filter::linear);
-    if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
-
-    uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
-    uint count = binCounts[tileIdx];
-    uint start = binStarts[tileIdx];
-
-    float2 pixel = float2(gid) + 0.5;
-    float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0);
-    float closestInvZ = -1e9;
-
-    for (uint t = 0; t < count; t++) {
-        uint slotIdx = binData[start + t];
-        uint o0 = outIndices[slotIdx * 3];
-        if (o0 == 0xFFFFFFFF) continue;
-        uint o1 = outIndices[slotIdx * 3 + 1];
-        uint o2 = outIndices[slotIdx * 3 + 2];
-
-        uint inputTriIdx = slotIdx / 2;
-        ScreenVertex v0 = loadFromSlot(outVerts, inputTriIdx, o0);
-        ScreenVertex v1 = loadFromSlot(outVerts, inputTriIdx, o1);
-        ScreenVertex v2 = loadFromSlot(outVerts, inputTriIdx, o2);
-
-        float2 s0 = v0.position;
-        float2 s1 = v1.position;
-        float2 s2 = v2.position;
-
-        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (cullMode == 1 && cross2D <= 0.0) continue;
-        if (cullMode == 2 && cross2D >= 0.0) continue;
-
-        float2 e0 = s1 - s0;
-        float2 e1 = s2 - s0;
-        float2 e2 = pixel - s0;
-
-        float d00 = dot(e0, e0);
-        float d01 = dot(e0, e1);
-        float d02 = dot(e0, e2);
-        float d11 = dot(e1, e1);
-        float d12 = dot(e1, e2);
-
-        float det = d00 * d11 - d01 * d01;
-        if (abs(det) < 1e-9) continue;
-        float invDen = 1.0 / det;
-        float u = (d11 * d02 - d01 * d12) * invDen;
-        float v = (d00 * d12 - d01 * d02) * invDen;
-        float w = 1.0 - u - v;
-
-        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
-            float iz0 = v0.invZ;
-            float iz1 = v1.invZ;
-            float iz2 = v2.invZ;
-            float invZ = w * iz0 + u * iz1 + v * iz2;
-            bool passes = (depthTestEnabled == 0) || (invZ > closestInvZ);
-            if (passes) {
-                closestInvZ = invZ;
-                float2 uvI = (w * v0.uv * iz0 + u * v1.uv * iz1 + v * v2.uv * iz2) / invZ;
-                float4 colI = (w * v0.color * iz0 + u * v1.color * iz1 + v * v2.color * iz2) / invZ;
-                float3 nrm = normalize(w * normalize(v0.normal) + u * normalize(v1.normal) + v * normalize(v2.normal));
-                uint tid = triTexIDs[inputTriIdx];
-                float4 texColor = (tid == 1) ? tex1.sample(texSampler, uvI) : tex0.sample(texSampler, uvI);
-                float intensity = max(dot(nrm, lightDir), 0.2);
-                bestColor = colI * texColor * intensity;
-            }
-        }
-    }
-    output.write(bestColor, gid);
-}
-
-kernel void upscale_pass(
-    texture2d<float, access::sample> lowRes [[texture(0)]],
-    texture2d<float, access::write> highRes [[texture(1)]],
-    uint2 gid [[thread_position_in_grid]]
-) {
-    constexpr sampler s(mag_filter::linear, min_filter::linear);
-    float2 uv = (float2(gid) + 0.5) / float2(highRes.get_width(), highRes.get_height());
-    highRes.write(lowRes.sample(s, uv), gid);
-}
-
-kernel void vertex_animate_pass(
-    device float* verts [[buffer(0)]],
-    constant float& t [[buffer(1)]],
-    constant float& dt [[buffer(2)]],
-    constant uint& baseOffset [[buffer(3)]],
-    constant uint& count [[buffer(4)]],
-    device const float* origin [[buffer(5)]],
-    uint gid [[thread_position_in_grid]]
-) {
-    if (gid >= count) return;
-    uint base = baseOffset + gid * 12;
-    verts[base + 1] = origin[base + 1] + sin(t * 5.0) * 0.3;
-}
-
-
 kernel void binning_count_pass(
     device const float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
@@ -352,7 +241,6 @@ kernel void binning_offset_pass(
     }
 }
 
-
 kernel void binning_fill_pass(
     device const float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
@@ -403,4 +291,132 @@ kernel void binning_fill_pass(
             }
         }
     }
+}
+
+kernel void rasterize_pass(
+    device const float* outVerts [[buffer(0)]],
+    device const uint* outIndices [[buffer(1)]],
+    device const uint* binCounts [[buffer(2)]],
+    device const uint* binData [[buffer(3)]],
+    constant uint& screenTileCountX [[buffer(4)]],
+    constant uint& depthTestEnabled [[buffer(5)]],
+    constant uint& cullMode [[buffer(6)]],
+    device const uint* triTexIDs [[buffer(7)]],
+    device const uint* binStarts [[buffer(8)]],
+    constant uint& depthCompareFunc [[buffer(9)]],
+    texture2d<float, access::write> output [[texture(0)]],
+    texture2d<float> tex0 [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]],
+    uint2 gid [[thread_position_in_grid]],
+    uint2 tileOrigin [[threadgroup_position_in_grid]]
+) {
+    constexpr sampler texSampler(mag_filter::linear, min_filter::linear);
+    if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
+
+    uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
+    uint count = binCounts[tileIdx];
+    uint start = binStarts[tileIdx];
+
+    float2 pixel = float2(gid) + 0.5;
+    float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
+    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0);
+    float closestInvZ = -1e9;
+
+    for (uint t = 0; t < count; t++) {
+        uint slotIdx = binData[start + t];
+        uint o0 = outIndices[slotIdx * 3];
+        if (o0 == 0xFFFFFFFF) continue;
+        uint o1 = outIndices[slotIdx * 3 + 1];
+        uint o2 = outIndices[slotIdx * 3 + 2];
+
+        uint inputTriIdx = slotIdx / 2;
+        ScreenVertex v0 = loadFromSlot(outVerts, inputTriIdx, o0);
+        ScreenVertex v1 = loadFromSlot(outVerts, inputTriIdx, o1);
+        ScreenVertex v2 = loadFromSlot(outVerts, inputTriIdx, o2);
+
+        float2 s0 = v0.position;
+        float2 s1 = v1.position;
+        float2 s2 = v2.position;
+
+        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+        if (cullMode == 1 && cross2D <= 0.0) continue;
+        if (cullMode == 2 && cross2D >= 0.0) continue;
+
+        float2 e0 = s1 - s0;
+        float2 e1 = s2 - s0;
+        float2 e2 = pixel - s0;
+
+        float d00 = dot(e0, e0);
+        float d01 = dot(e0, e1);
+        float d02 = dot(e0, e2);
+        float d11 = dot(e1, e1);
+        float d12 = dot(e1, e2);
+
+        float det = d00 * d11 - d01 * d01;
+        if (abs(det) < 1e-9) continue;
+        float invDen = 1.0 / det;
+        float u = (d11 * d02 - d01 * d12) * invDen;
+        float v = (d00 * d12 - d01 * d02) * invDen;
+        float w = 1.0 - u - v;
+
+        if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
+            float iz0 = v0.invZ;
+            float iz1 = v1.invZ;
+            float iz2 = v2.invZ;
+            float invZ = w * iz0 + u * iz1 + v * iz2;
+
+            bool passes;
+            if (depthTestEnabled == 0) {
+                passes = true;
+            } else {
+                switch (depthCompareFunc) {
+                    case 0: passes = false; break;
+                    case 1: passes = (invZ > closestInvZ); break;
+                    case 2: passes = (abs(invZ - closestInvZ) < 1e-6); break;
+                    case 3: passes = (invZ >= closestInvZ); break;
+                    case 4: passes = (invZ < closestInvZ); break;
+                    case 5: passes = (abs(invZ - closestInvZ) >= 1e-6); break;
+                    case 6: passes = (invZ <= closestInvZ); break;
+                    case 7: passes = true; break;
+                    default: passes = (invZ > closestInvZ); break;
+                }
+            }
+
+            if (passes) {
+                closestInvZ = invZ;
+                float2 uvI = (w * v0.uv * iz0 + u * v1.uv * iz1 + v * v2.uv * iz2) / invZ;
+                float4 colI = (w * v0.color * iz0 + u * v1.color * iz1 + v * v2.color * iz2) / invZ;
+                float3 nrm = normalize(w * normalize(v0.normal) + u * normalize(v1.normal) + v * normalize(v2.normal));
+                uint tid = triTexIDs[inputTriIdx];
+                float4 texColor = (tid == 1) ? tex1.sample(texSampler, uvI) : tex0.sample(texSampler, uvI);
+                float intensity = max(dot(nrm, lightDir), 0.2);
+                bestColor = colI * texColor * intensity;
+            }
+        }
+    }
+    output.write(bestColor, gid);
+}
+
+kernel void upscale_pass(
+    texture2d<float, access::sample> lowRes [[texture(0)]],
+    texture2d<float, access::write> highRes [[texture(1)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    constexpr sampler s(mag_filter::linear, min_filter::linear);
+    float2 uv = (float2(gid) + 0.5) / float2(highRes.get_width(), highRes.get_height());
+    highRes.write(lowRes.sample(s, uv), gid);
+}
+
+kernel void vertex_animate_pass(
+    device float* verts [[buffer(0)]],
+    constant float& t [[buffer(1)]],
+    constant float& dt [[buffer(2)]],
+    constant uint& baseOffset [[buffer(3)]],
+    constant uint& count [[buffer(4)]],
+    device const float* origin [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= count) return;
+    uint base = baseOffset + gid * 12;
+    verts[base + 1] = origin[base + 1] + sin(t * 5.0) * 0.3;
 }
