@@ -8,10 +8,10 @@ import Foundation
 // Stream format: [opcode: UInt32][payload: UInt32...]
 // All payloads are UInt32; floats are encoded via .bitPattern.
 //
-// Opcode table (v0.4.0):
+// Opcode table (v0.6.0):
 //   0x01 DRAW_INDEXED              [globalIndexStart][indexCount][textureID]        4
 //   0x02 CLEAR_COLOR               [r][g][b][a]                                     5
-//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID]           5
+//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID][depthFunc] 6
 //   0x04 SET_VIEWPORT              [w][h]                                           3
 //   0x05 (unused)
 //   0x06 SET_TRANSFORM             [16 floats as bitPattern]                       17
@@ -20,7 +20,7 @@ import Foundation
 //   0x09 UPDATE_VB                 [poolOffset][count][data0..dataN]            3 + N
 //   0x0A UPDATE_IB                 [poolOffset][count][data0..dataN]            3 + N
 //   0x10 BIND_COMPUTE_PIPELINE     [handle]                                         2
-//   0x11 BIND_COMPUTE_VERTEX_POOL  [slot][byteOffset][byteLength]                   4
+//   0x11 BIND_COMPUTE_VERTEX_POOL  [slot][poolOffsetFloats][byteOffsetFloats]       4
 //   0x12 COMPUTE_DISPATCH          [gx][gy][gz]                                     4
 
 public enum AlloyOpcode: UInt32 {
@@ -54,7 +54,7 @@ public enum AlloyOpcodeLength {
             return 5
 
         case .bindPipeline:
-            return 5
+            return 6
 
         case .setViewport:
             return 3
@@ -93,12 +93,10 @@ public enum AlloyOpcodeLength {
         }
     }
 
-    /// True if the opcode exists in the protocol.
     public static func isKnown(_ op: UInt32) -> Bool {
         return AlloyOpcode(rawValue: op) != nil
     }
 
-    /// Human-readable name (useful for logging / debugging).
     public static func name(of op: UInt32) -> String {
         guard let o = AlloyOpcode(rawValue: op) else { return "UNKNOWN(\(op))" }
         switch o {
