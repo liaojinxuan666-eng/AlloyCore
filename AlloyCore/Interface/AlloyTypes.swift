@@ -29,6 +29,29 @@ public enum AlloyCompareFunc: UInt32 {
     case always       = 7
 }
 
+public enum AlloyBlendFactor: UInt32 {
+    case zero                  = 0
+    case one                   = 1
+    case srcColor              = 2
+    case oneMinusSrcColor      = 3
+    case dstColor              = 4
+    case oneMinusDstColor      = 5
+    case srcAlpha              = 6
+    case oneMinusSrcAlpha      = 7
+    case dstAlpha              = 8
+    case oneMinusDstAlpha      = 9
+    case constantColor         = 10
+    case oneMinusConstantColor = 11
+}
+
+public enum AlloyBlendOp: UInt32 {
+    case add             = 0
+    case subtract        = 1
+    case reverseSubtract = 2
+    case min             = 3
+    case max             = 4
+}
+
 public struct AlloyPipelineDescriptor {
     public var depthTestEnabled: Bool = true
     public var depthWriteEnabled: Bool = true
