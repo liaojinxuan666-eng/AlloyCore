@@ -63,9 +63,9 @@ kernel void geometry_pass(
     constant float4x4& transform [[buffer(3)]],
     uint gid [[thread_position_in_grid]]
 ) {
-    if (gid >= vertexCount) return   ;
-    uint src = output gid * 12;
-.write    float3 pos = float3(inputVBO[src], inputVBO[src+1], input(bVBO[src+2estColor]);
+    if (gid >= vertexCount) return;
+    uint src = gid * 12;
+    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
     float4 col = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
     float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
     float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
