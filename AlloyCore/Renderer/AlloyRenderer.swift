@@ -61,6 +61,7 @@ public class AlloyRenderer {
               let b = library.makeFunction(name: "binning_pass"),
               let bc = library.makeFunction(name: "binning_count_pass"),
               let bo = library.makeFunction(name: "binning_offset_pass"),
+              let bf = library.makeFunction(name: "binning_fill_pass"),
               let r = library.makeFunction(name: "rasterize_pass"),
               let u = library.makeFunction(name: "upscale_pass") else {
             return nil
