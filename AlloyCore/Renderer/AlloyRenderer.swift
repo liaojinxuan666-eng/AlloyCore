@@ -20,7 +20,6 @@ public class AlloyRenderer {
     var binningCountPipeline: MTLComputePipelineState!
     var binningOffsetPipeline: MTLComputePipelineState!
     var binningFillPipeline: MTLComputePipelineState!
-    var binStartsBuffer: MTLBuffer?
     var rasterizePipeline: MTLComputePipelineState!
     var upscalePipeline: MTLComputePipelineState!
     let tileSize: Int = 16
@@ -39,6 +38,7 @@ public class AlloyRenderer {
     var cachedTriangleCount: Int = 0
     var binCountsBuffer: MTLBuffer?
     var binDataBuffer: MTLBuffer?
+    var binStartsBuffer: MTLBuffer?
     var binTileCountX: UInt32 = 0
     var binTileCountY: UInt32 = 0
     let library: MTLLibrary
@@ -100,7 +100,7 @@ public class AlloyRenderer {
                                               length: indexData.count * MemoryLayout<UInt32>.size,
                                               options: .storageModeShared)
         cachedTriTexIDs = device.makeBuffer(length: tc * MemoryLayout<UInt32>.size,
-                                                options: .storageModeShared)
+                                            options: .storageModeShared)
         cachedVertexCount = vc
         cachedTriangleCount = tc
     }
@@ -180,7 +180,9 @@ public class AlloyRenderer {
             binTileCountX = tileCountX
             binTileCountY = tileCountY
         }
-        guard let binCounts = binCountsBuffer, let binData = binDataBuffer, let binStarts = binStartsBuffer else { return nil }
+        guard let binCounts = binCountsBuffer,
+              let binData = binDataBuffer,
+              let binStarts = binStartsBuffer else { return nil }
 
         var matrix = extractTransform(from: rawCommands)
         var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
@@ -248,7 +250,7 @@ public class AlloyRenderer {
                 let byteOffsetFloats = Int(rawCommands[ci + 3])
                 pendingComputeBindings.append((slot: slot, floatOffset: poolOffsetFloats + byteOffsetFloats))
 
-           case .computeDispatch:
+            case .computeDispatch:
                 let gx = rawCommands[ci + 1]
                 let gy = rawCommands[ci + 2]
                 let gz = rawCommands[ci + 3]
@@ -265,7 +267,8 @@ public class AlloyRenderer {
 
         guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return nil }
         passTimings.removeAll(keepingCapacity: true)
-        
+
+        // MARK: - compute dispatches
         let tCompute = CACurrentMediaTime()
         if !pendingDispatches.isEmpty {
             if let enc = cmdBuffer.makeComputeCommandEncoder() {
@@ -284,7 +287,6 @@ public class AlloyRenderer {
                         computePipelineCache[desc.shaderName] = newState
                         state = newState
                     }
-                    enc.setComputePipelineState(state)
                     let baseOffset: UInt32 = disp.bindings.first.map { UInt32($0.floatOffset) } ?? 0
                     let totalThreads: UInt32 = disp.groups.x
                     enc.setComputePipelineState(state)
@@ -298,7 +300,7 @@ public class AlloyRenderer {
                     var vc = totalThreads
                     enc.setBytes(&vc, length: MemoryLayout<UInt32>.size, index: 4)
                     if let origin = cachedVertexOriginBuffer {
-                     enc.setBuffer(origin, offset: 0, index: 5)
+                        enc.setBuffer(origin, offset: 0, index: 5)
                     }
                     let tg = MTLSize(width: Int(desc.threadsPerThreadgroup.x),
                                      height: Int(desc.threadsPerThreadgroup.y),
@@ -309,9 +311,10 @@ public class AlloyRenderer {
                 enc.endEncoding()
             }
             pendingDispatches.removeAll(keepingCapacity: true)
-            passTimings.append(AlloyPassTiming(name: "compute", ms: (CACurrentMediaTime() - tCompute) * 1000))
         }
-        
+        passTimings.append(AlloyPassTiming(name: "compute", ms: (CACurrentMediaTime() - tCompute) * 1000))
+
+        // MARK: - geometry
         let tGeom = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(geometryPipeline)
@@ -325,7 +328,8 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "geometry", ms: (CACurrentMediaTime() - tGeom) * 1000))
-        
+
+        // MARK: - clip_project
         let tClip = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(clipProjectPipeline)
@@ -341,30 +345,62 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) * 1000))
-        
+
+        // MARK: - binning (count -> offset -> fill)
         let tBinning = CACurrentMediaTime()
+
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
             blit.fill(buffer: binCounts, range: 0..<binCounts.length, value: 0)
             blit.endEncoding()
         }
-        passTimings.append(AlloyPassTiming(name: "binning", ms: (CACurrentMediaTime() - tBinning) * 1000))
 
         var totalOutputSlots = UInt32(cachedTriangleCount * 2)
+        var numTilesU = UInt32(numTiles)
+        var binDataCapacity = UInt32(numTiles * maxTrianglesPerTile)
+        let slotCount = cachedTriangleCount * 2
+
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
-            enc.setComputePipelineState(binningPipeline)
+            enc.setComputePipelineState(binningCountPipeline)
             enc.setBuffer(outVerts, offset: 0, index: 0)
             enc.setBuffer(outIndices, offset: 0, index: 1)
             enc.setBuffer(binCounts, offset: 0, index: 2)
-            enc.setBuffer(binData, offset: 0, index: 3)
-            enc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 4)
-            enc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 5)
-            let w = binningPipeline.threadExecutionWidth
-            let slotCount = cachedTriangleCount * 2
+            enc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 3)
+            enc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 4)
+            let w = binningCountPipeline.threadExecutionWidth
             enc.dispatchThreads(MTLSize(width: slotCount, height: 1, depth: 1),
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
-        
+
+        if let enc = cmdBuffer.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(binningOffsetPipeline)
+            enc.setBuffer(binCounts, offset: 0, index: 0)
+            enc.setBuffer(binStarts, offset: 0, index: 1)
+            enc.setBytes(&numTilesU, length: MemoryLayout<UInt32>.size, index: 2)
+            enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+            enc.endEncoding()
+        }
+
+        if let enc = cmdBuffer.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(binningFillPipeline)
+            enc.setBuffer(outVerts, offset: 0, index: 0)
+            enc.setBuffer(outIndices, offset: 0, index: 1)
+            enc.setBuffer(binCounts, offset: 0, index: 2)
+            enc.setBuffer(binData, offset: 0, index: 3)
+            enc.setBuffer(binStarts, offset: 0, index: 4)
+            enc.setBytes(&totalOutputSlots, length: MemoryLayout<UInt32>.size, index: 5)
+            enc.setBytes(&screenTileCounts, length: MemoryLayout<SIMD2<UInt32>>.size, index: 6)
+            enc.setBytes(&binDataCapacity, length: MemoryLayout<UInt32>.size, index: 7)
+            let w = binningFillPipeline.threadExecutionWidth
+            enc.dispatchThreads(MTLSize(width: slotCount, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
+            enc.endEncoding()
+        }
+
+        passTimings.append(AlloyPassTiming(name: "binning", ms: (CACurrentMediaTime() - tBinning) * 1000))
+
+        // MARK: - rasterize
         let tRaster = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rasterizePipeline)
@@ -375,9 +411,10 @@ public class AlloyRenderer {
             enc.setBytes(&screenTileCountX, length: MemoryLayout<UInt32>.size, index: 4)
             enc.setBytes(&depthTestEnabled, length: MemoryLayout<UInt32>.size, index: 5)
             enc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
+            enc.setBuffer(triTexIDs, offset: 0, index: 7)
+            enc.setBuffer(binStarts, offset: 0, index: 8)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(tex0, index: 1)
-            enc.setBuffer(triTexIDs, offset: 0, index: 7)
             if textures.count > 1, let tex1 = textures[1] {
                 enc.setTexture(tex1, index: 2)
             } else {
@@ -389,7 +426,8 @@ public class AlloyRenderer {
             enc.endEncoding()
         }
         passTimings.append(AlloyPassTiming(name: "rasterize", ms: (CACurrentMediaTime() - tRaster) * 1000))
-        
+
+        // MARK: - upscale
         let tUpscale = CACurrentMediaTime()
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(upscalePipeline)
