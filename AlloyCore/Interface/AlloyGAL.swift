@@ -104,6 +104,14 @@ public class AlloyGAL {
         frameCommandBuffer.append(Float(height).bitPattern)
     }
 
+    public func setScissor(x: Int, y: Int, width: Int, height: Int) {
+        frameCommandBuffer.append(AlloyOpcode.setScissor.rawValue)
+        frameCommandBuffer.append(UInt32(max(0, x)))
+        frameCommandBuffer.append(UInt32(max(0, y)))
+        frameCommandBuffer.append(UInt32(max(0, width)))
+        frameCommandBuffer.append(UInt32(max(0, height)))
+    }
+
     public func setTransform(matrix: [Float]) {
         guard matrix.count == 16 else { return }
         frameCommandBuffer.append(0x06)
