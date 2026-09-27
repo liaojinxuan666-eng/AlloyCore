@@ -193,13 +193,13 @@ struct MetalView: UIViewRepresentable {
 
             gal.beginFrame()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
-            gal.setViewport(width:(format Int(width), height: Int(height))
+            gal.setViewport(width: Int(width), height: Int(height))
             gal.bindPipeline(pipelineHandle)
             gal.setTransform(matrix: matrixArray)
 
             gal.computeTime = time
-            gal:.bindComputePipeline(computeHandle)
-            gal.bindComputeBuffer(s "lot: 0, handleF: meshRanges[PS1].vbo)
+            gal.bindComputePipeline(computeHandle)
+            gal.bindComputeBuffer(slot: 0, handle: meshRanges[1].vbo)
             gal.dispatchCompute(groups: SIMD3<UInt32>(UInt32(middleVerts.count / 12), 1, 1))
 
             for mesh in meshRanges {
@@ -232,7 +232,7 @@ struct PerformanceHUD: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(String: %.1f", perf.fps))
+            Text(String(format: "FPS: %.1f", perf.fps))
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
             Text(String(format: "Frame: %.2f ms", perf.frameTimeMs))
                 .font(.system(size: 12, design: .monospaced))
