@@ -20,7 +20,7 @@ inline ScreenVertex loadFromSlot(device const float* verts, uint inputTriIdx, ui
     ScreenVertex v;
     v.position = float2(verts[off], verts[off+1]);
     v.uv = float2(verts[off+2], verts[off+3]);
-    v.in[off+4];
+    v.invZ = verts[off+4];
     v.clipW = verts[off+5];
     v.normal = float3(verts[off+6], verts[off+7], verts[off+8]);
     v.color = float4(verts[off+9], verts[off+10], verts[off+11], verts[off+12]);
