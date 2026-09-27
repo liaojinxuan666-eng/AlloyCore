@@ -44,7 +44,7 @@ AlloyCore/
 ├── Renderer/
 │   └── AlloyRenderer.swift       Metal Compute 后端
 ├── Shaders/
-│   └── Shaders.metal             六个 Compute Kernel
+│   └── Shaders.metal             八个 Compute Kernel
 ├── Frontends/                    各 API 前端（可插拔）
 │   └── NVN/
 │       └── NVNFrontend.swift     NVN 骨架（未填实）
@@ -63,7 +63,8 @@ AlloyCore/
 │ 2. clip_project_pass (Sutherland-Hodgman 近平面裁剪)
 ▼
 [屏幕空间三角形 + 每个输入三角形最多 2 个输出三角形]
-│ 3. binning_pass (Tile Binning，每 16×16 tile 收集三角形)
+│ 3. binning_count_pass → binning_offset_pass → binning_fill_pass
+│    (Tile Binning，三趟；无每 tile 容量上限)
 ▼
 [每个 tile 的三角形索引列表]
 │ 4. rasterize_pass (每线程组处理一个 tile)
@@ -77,17 +78,18 @@ AlloyCore/
 - 透视校正插值（UV 和颜色都用 invZ 加权）
 - 近平面裁剪（避免 w≤0 除零和三角形翻转）
 - Tile Binning（O(triangles) 而非 O(tiles × triangles)）
+- **三趟 binning：无每 tile 容量上限**（v0.5.0）
 - Early-Z（逐像素深度测试）
 - 背面剔除
 - **GPU Compute 顶点动画**（v0.4.0）
 
 ---
 
-## Compute Dispatch（v0.4.0 新增）
+## Compute Dispatch（v0.4.0）
 
 GAL 支持在渲染前派发通用 Compute Kernel——"我们的 CUDA"。
 
-**接口**（状态机模型，对应 D3D11/Vulkan 的 Bind → Dispatch）：
+**接口**（状态机模型，对应 D3D11 / Vulkan 的 Bind → Dispatch）：
 
 ```swift
 // 创建（一次性）
@@ -104,7 +106,7 @@ gal.dispatchCompute(groups: SIMD3<UInt32>(threadCount, 1, 1))
  
 执行时序：所有 compute dispatch 在 geometry_pass 之前 一次性执行。
 适用于"GPU 顶点动画"这类"compute 改顶点 → 渲染读顶点"的场景。
-真正的"draw 之间插 compute"是 v0.5.0 的事。
+真正的"draw 之间插 compute"是未来的事。
  
 协议 opcode：
 • 0x10 BIND_COMPUTE_PIPELINE [handle]
@@ -220,13 +222,27 @@ buffer(3): device uint* outIndices
 buffer(4): constant uint& triangleCount
 buffer(5): constant float2& screenSize
  
-binning_pass：
+binning_count_pass（v0.5.0）：
+buffer(0): device const float* outVerts
+buffer(1): device const uint* outIndices
+buffer(2): device atomic_uint* binCounts
+buffer(3): constant uint& totalOutputSlots
+buffer(4): constant uint2& screenTileCounts
+ 
+binning_offset_pass（v0.5.0）：
+buffer(0): device uint* binCounts
+buffer(1): device uint* binStarts
+buffer(2): constant uint& numTiles
+ 
+binning_fill_pass（v0.5.0）：
 buffer(0): device const float* outVerts
 buffer(1): device const uint* outIndices
 buffer(2): device atomic_uint* binCounts
 buffer(3): device uint* binData
-buffer(4): constant uint& totalOutputSlots
-buffer(5): constant uint2& screenTileCounts
+buffer(4): device const uint* binStarts
+buffer(5): constant uint& totalOutputSlots
+buffer(6): constant uint2& screenTileCounts
+buffer(7): constant uint& binDataCapacity
  
 rasterize_pass：
 buffer(0): device const float* outVerts
@@ -237,6 +253,7 @@ buffer(4): constant uint& screenTileCountX
 buffer(5): constant uint& depthTestEnabled
 buffer(6): constant uint& cullMode
 buffer(7): device const uint* triTexIDs
+buffer(8): device const uint* binStarts
 texture(0): texture2d<float, access::write> output
 texture(1): texture2d<float> tex0
 texture(2): texture2d<float> tex1
@@ -269,10 +286,18 @@ buffer(5): device const float* origin
  
 无状态设计，避免"全局 currentIndexBufferOffset"这类容易出错的隐式状态。Vulkan/D3D12 精神。
  
-4. 为什么 MAX_PER_TILE 是 256？
+4. 为什么 binning 从单趟改成三趟？（v0.5.0）
  
-每个 tile 16×16 = 256 像素，平均下来 256 个三角形足够覆盖。溢出时 atomic_fetch_sub 回退计数。
+旧实现用 atomic_fetch_add 分配槽位，超过 MAX_PER_TILE = 256 就 atomic_fetch_sub 回退——溢出的三角形被静默丢弃。这在密集场景（大三角形横跨多个 tile）会丢几何。
  
+新实现分三趟：
+• binning_count_pass：只累加每个 tile 的计数器
+• binning_offset_pass：单线程串行前缀和，算出每个 tile 在 binData 里的起点，顺便把 binCounts 清零
+• binning_fill_pass：按前缀和偏移 + 每 tile 计数器原子递增，把三角形索引写入 binData 
+收益：
+• 每 tile 无 256 上限，唯一约束是 binData 总容量
+• fill 阶段没有回退分支，写路径更干净
+• 代价是两次额外的 encoder 切换（v0.5.0 实测 HUD 里 binning 从 0.03ms → 0.10ms，绝对值仍可忽略） 
 5. 为什么 compute 不走指令流而走 Swift 对象？（v0.4.0）
  
 Compute dispatch 结构复杂（shader 名、threadgroup 尺寸、多 buffer 绑定），编到 [UInt32] 流里会很丑。改为 GAL 存对象数组、submit 时传给 Renderer、Renderer 循环执行。和纹理数组同一模式。
@@ -287,11 +312,12 @@ Compute dispatch 结构复杂（shader 名、threadgroup 尺寸、多 buffer 绑
 27 立方体阵列 324 60
 3×27 立方体（当前 TestApp） 972 60
 1000 立方体（10000+ 三角形） 12000 32
-无 Tile Binning 时 324 三角形 324 10
 
  
 v0.4.0 变化：顶点动画从 CPU 侧 7776 次循环 / 帧 → GPU 内 648 线程 compute。
 CPU 每帧仅编码 4 条 compute 指令。
+ 
+v0.5.0 变化：HUD 显示 6 个 pass 的 CPU 编码耗时（compute / geometry / clip_project / binning / rasterize / upscale）。总编码耗时 < 0.2ms，60fps 预算的 1% 左右。
  
 注意：截屏瞬间 FPS 会跌到 50 左右，是 iOS 系统合成开销，稳定状态 60。 
  
@@ -311,11 +337,9 @@ Actions 关键配置（.github/workflows/build.yml）：
  
 推荐方案：
 1. GitHub Codespaces（浏览器打开仓库 → Code → Codespaces → Create）
-2. Working Copy（iOS 上的- Git 客户端）
-3. [ 电脑 + git clone 
-中文注释是 ]最高危因素——iOS 剪 贴板处理多字节字符时容易出错。
- 
-资源---
+2. Working Copy（iOS 上的 Git 客户端）
+3. 电脑 + git clone 
+中文注释是最高危因素——iOS 剪贴板处理多字节字符时容易出错。 
  
 日志与调试
  
@@ -334,25 +358,28 @@ v0.3.0 地基扩展 ✅
 [x] 指令流越界保护
 [x] 资源生命周期（poolVersion）
 [x] 帧节流（semaphore = 2） 
-v0.4.0 Compute & Protocol ✅（当前）
+v0.4.0 Compute & Protocol ✅
 [x] 协议单份定义（AlloyOpcode.swift）
 [x] Renderer 表驱动（消灭双份 while）
 [x] Compute dispatch 接口（0x10/0x11/0x12）
 [x] GPU 顶点动画（"我们的 CUDA"第一个用例） 
-v0.5.0 Depth & Binning
-[ ] 两趟 binning（消除 MAX_PER_TILE = 256 上限）
+v0.5.0 Profiling & Binning ✅
+[x] Per-pass CPU 计时（HUD 显示 6 个 pass）
+[x] 三趟 binning（count / offset / fill）
+[x] 移除 MAX_PER_TILE = 256 硬上限 
+v0.6.0 Depth & Rasterization
 [ ] 深度比较函数（less / greater / equal 等）
 [ ] 深度写入开关
-[ ] 模板测试
 [ ] 完整混合模式（srcBlend / dstBlend / blendOp）
+[ ] 模板测试
 [ ] Scissor Rect
-[ ] 渲染到纹理（Render Pass）
-销毁完整化 
-v0.6.0 NVN 前端
+[ ] Edge-function 光栅化（替换当前 2×2 行列式解）
+[ ] 渲染到纹理（Render Pass） 
+v0.7.0 NVN 前端
 [ ] NVN 调用翻译到 GAL
 [ ] NVN 资源句柄映射
 [ ] 动态顶点数据流 
-v0.7.0 着色器虚拟机
+v0.8.0 着色器虚拟机
 [ ] DXBC / DXIL 解析
 [ ] SPIR-V 解析
 [ ] 虚拟 ISA
@@ -360,25 +387,26 @@ v0.7.0 着色器虚拟机
 远期
 [ ] D3D11 前端
 [ ] Vulkan 前端
-[ ] 性能基线自动化（CI 跑 benchmark） 
+[ ] 性能基线自动化（CI 跑 benchmark，超阈值就红） 
  
 已知问题
  
-✅ 已修复（v0.3.0 / v0.4.0）
-• binning 溢出：atomic_fetch_add 后判断 slot，溢出时 atomic_fetch_sub 回退
-• 颜色插值未透视校正：colI 现在也用 iz0/iz1/iz2 加权
-• cullMode 符号反了：cross2D <= 0.0 剔除背面
-• geometry_pass 写错 dst+110 丢蓝通道
-• 指令流无边界检查（越界崩溃）
-• addCompletedHandler 在 commit() 之后调用（Metal 断言崩溃）
-• updateVertexBuffer 缺失 count + 数据循环（流错位） 
-⚠️ 待处理（v0.5.0）
+✅ 已修复
+• binning 溢出：atomic_fetch_add 后判断 slot，溢出时 atomic_fetch_sub 回退（v0.3.0）
+• 颜色插值未透视校正：colI 现在也用 iz0/iz1/iz2 加权（v0.3.0）
+• cullMode 符号反了：cross2D <= 0.0 剔除背面（v0.3.0）
+• geometry_pass 写错 dst+110 丢蓝通道（v0.4.0）
+• 指令流无边界检查（越界崩溃）（v0.4.0）
+• addCompletedHandler 在 commit() 之后调用（Metal 断言崩溃）（v0.4.0）
+• updateVertexBuffer 缺失 count + 数据循环（流错位）（v0.4.0）
+• MAX_PER_TILE = 256 硬上限（v0.5.0，三趟 binning 根治） 
+⚠️ 待处理
 • 命令协议单份解析：已部分解决（AlloyOpcodeLength.of），但主 while 里的 switch 仍需手改
 • 资源只增不减：vertexPool / indexPool 只 append，无 destroy
 • 接收但未实现的状态：clearColor、blendEnabled、depthWriteEnabled、viewport 被编码但部分被忽略
 • PostFX 是死代码：AlloyAA / AlloySR / AlloySSAA 未接入 renderer
 • NVNFrontend 是占位：纯注释骨架
-• bindings.first 忽略 slot（v0.4.0 遗留）：多 buffer 绑定时会塌缩
+• bindings.first 忽略 slot（v0.4.0 遗留）：多 buffer 绑定时会塌缩到第一个
 • dispatchCompute(groups:) 名不副实：实际传的是线程数，不是 group 数
 • dt 参数冗余：vertex_animate_pass 收到但未使用
 • poolVersion bump 后动画跳回原点：uploadGeometry 重传后 origin 快照更新，compute 需重新同步 
@@ -417,5 +445,3 @@ iOS 上第一个用自建虚拟 GPU（而非 MoltenVK / D3DMetal）跑通 D3D11 
 2. 不改 Renderer/ 和 Shaders/（除非修复 bug）
 3. 只加 Frontends/XXX/ 下的文件 
 如果加前端时发现需要改核心，说明那是地基缺失的通用能力，应该先补地基。
-
----
