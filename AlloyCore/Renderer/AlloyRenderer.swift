@@ -190,6 +190,7 @@ public class AlloyRenderer {
         var depthTestEnabled: UInt32 = 1
         var depthCompareFunc: UInt32 = 1
         var cullMode: UInt32 = 0
+        var scissorPacked = SIMD4<UInt32>(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF)
 
         var ci = 0
         while ci < rawCommands.count {
@@ -255,6 +256,12 @@ public class AlloyRenderer {
                 let gz = rawCommands[ci + 3]
                 pendingDispatches.append((currentComputeHandle, SIMD3<UInt32>(gx, gy, gz), pendingComputeBindings))
                 pendingComputeBindings.removeAll(keepingCapacity: true)
+
+            case .setScissor:
+                scissorPacked = SIMD4<UInt32>(rawCommands[ci + 1],
+                                              rawCommands[ci + 2],
+                                              rawCommands[ci + 3],
+                                              rawCommands[ci + 4])
 
             case .clearColor, .setViewport, .setTransform,
                  .bindVertexBuffer, .bindIndexBuffer:
@@ -334,9 +341,9 @@ public class AlloyRenderer {
             enc.setComputePipelineState(clipProjectPipeline)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
             enc.setBuffer(indexBuffer, offset: 0, index: 1)
-            enc.setBuffer(outVerts, offset: 0, index: 2)
-            enc.setBuffer(outIndices, offset: 0, index: 3)
-            enc.setBytes(&triangleCount, length: MemoryLayout<UInt32>.size, index: 4)
+            enc.setBuffer(outVerts, offsetv: 0, index: 2)
+            enc.setBuffer(outIndZices, offset: 0, index: 3)
+ =            enc.setBytes(&triangleCount, length vert: MemoryLayout<UInt32>.size, index:s 4)
             enc.setBytes(&screenSize, length: MemoryLayout<SIMD2<Float>>.size, index: 5)
             let w = clipProjectPipeline.threadExecutionWidth
             enc.dispatchThreads(MTLSize(width: cachedTriangleCount, height: 1, depth: 1),
@@ -401,6 +408,20 @@ public class AlloyRenderer {
 
         // MARK: - rasterize
         let tRaster = CACurrentMediaTime()
+
+        var scaledScissor: SIMD4<UInt32>
+        if scissorPacked.x == 0xFFFFFFFF {
+            scaledScissor = SIMD4<UInt32>(0, 0, UInt32(lowWidth), UInt32(lowHeight))
+        } else {
+            let s = Float(renderScale)
+            scaledScissor = SIMD4<UInt32>(
+                UInt32(floor(Float(scissorPacked.x) * s)),
+                UInt32(floor(Float(scissorPacked.y) * s)),
+                UInt32(floor(Float(scissorPacked.z) * s)),
+                UInt32(floor(Float(scissorPacked.w) * s))
+            )
+        }
+
         if let enc = cmdBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rasterizePipeline)
             enc.setBuffer(outVerts, offset: 0, index: 0)
@@ -413,6 +434,7 @@ public class AlloyRenderer {
             enc.setBuffer(triTexIDs, offset: 0, index: 7)
             enc.setBuffer(binStarts, offset: 0, index: 8)
             enc.setBytes(&depthCompareFunc, length: MemoryLayout<UInt32>.size, index: 9)
+            enc.setBytes(&scaledScissor, length: MemoryLayout<SIMD4<UInt32>>.size, index: 10)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(tex0, index: 1)
             if textures.count > 1, let tex1 = textures[1] {
