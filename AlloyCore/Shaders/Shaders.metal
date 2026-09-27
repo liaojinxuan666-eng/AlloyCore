@@ -253,7 +253,7 @@ kernel void rasterize_pass(
 
     uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
     uint count = binCounts[tileIdx];
-    if (count > MAX_PER_TILE) count = MAX_PER_TILE;
+    uint start = binStarts[tileIdx];
 
     float2 pixel = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
