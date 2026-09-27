@@ -396,7 +396,8 @@ kernel void rasterize_pass(
                 bestColor = colI * texColor * intensity;
             }
         }
-   output.write(bestColor, gid);
+}
+    output.write(bestColor, gid);
 }
 
 kernel void upscale_pass(
