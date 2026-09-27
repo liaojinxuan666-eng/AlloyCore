@@ -56,7 +56,7 @@ public enum AlloyOpcodeLength {
             return 5
 
         case .bindPipeline:
-            return 6
+            return 13
 
         case .setViewport:
             return 3
