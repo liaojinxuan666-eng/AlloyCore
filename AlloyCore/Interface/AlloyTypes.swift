@@ -52,6 +52,18 @@ public enum AlloyBlendOp: UInt32 {
     case max             = 4
 }
 
+public struct AlloyTextureDescriptor {
+    public var width: Int
+    public var height: Int
+    public var format: AlloyPixelFormat
+    public var data: [UInt8]?
+    public init(width: Int, height: Int, format: AlloyPixelFormat = .rgba8Unorm, data: [UInt8]? = nil) {
+        self.width = width
+        self.height = height
+        self.format = format
+        self.data = data
+    }
+}
 
 public struct AlloyPipelineDescriptor {
     public var depthTestEnabled: Bool = true
