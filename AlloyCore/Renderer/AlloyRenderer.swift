@@ -16,7 +16,6 @@ public class AlloyRenderer {
     let commandQueue: MTLCommandQueue
     var geometryPipeline: MTLComputePipelineState!
     var clipProjectPipeline: MTLComputePipelineState!
-    var binningPipeline: MTLComputePipelineState!
     var binningCountPipeline: MTLComputePipelineState!
     var binningOffsetPipeline: MTLComputePipelineState!
     var binningFillPipeline: MTLComputePipelineState!
