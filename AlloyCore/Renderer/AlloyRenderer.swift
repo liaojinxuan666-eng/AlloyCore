@@ -180,7 +180,7 @@ public class AlloyRenderer {
             binTileCountX = tileCountX
             binTileCountY = tileCountY
         }
-        guard let binCounts = binCountsBuffer, let binData = binDataBuffer else { return nil }
+        guard let binCounts = binCountsBuffer, let binData = binDataBuffer, let binStarts = binStartsBuffer else { return nil }
 
         var matrix = extractTransform(from: rawCommands)
         var screenSize = SIMD2<Float>(Float(lowWidth), Float(lowHeight))
