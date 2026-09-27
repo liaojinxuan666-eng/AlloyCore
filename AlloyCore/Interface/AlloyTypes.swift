@@ -18,9 +18,21 @@ public enum AlloyCullMode: UInt32 {
     case front = 2
 }
 
+public enum AlloyCompareFunc: UInt32 {
+    case never        = 0
+    case less         = 1
+    case equal        = 2
+    case lessEqual    = 3
+    case greater      = 4
+    case notEqual     = 5
+    case greaterEqual = 6
+    case always       = 7
+}
+
 public struct AlloyPipelineDescriptor {
     public var depthTestEnabled: Bool = true
     public var depthWriteEnabled: Bool = true
+    public var depthCompareFunc: AlloyCompareFunc = .less
     public var cullMode: AlloyCullMode = .back
     public var blendEnabled: Bool = false
     public var shaderID: UInt32 = 0
