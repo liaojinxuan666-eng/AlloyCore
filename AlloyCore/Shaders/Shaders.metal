@@ -181,57 +181,6 @@ kernel void clip_project_pass(
     }
 }
 
-kernel void binning_pass(
-    device const float* outVerts [[buffer(0)]],
-    device const uint* outIndices [[buffer(1)]],
-    device atomic_uint* binCounts [[buffer(2)]],
-    device uint* binData [[buffer(3)]],
-    constant uint& totalOutputSlots [[buffer(4)]],
-    constant uint2& screenTileCounts [[buffer(5)]],
-    uint gid [[thread_position_in_grid]]
-) {
-    if (gid >= totalOutputSlots) return;
-
-    uint o0 = outIndices[gid * 3];
-    if (o0 == 0xFFFFFFFF) return;
-    uint o1 = outIndices[gid * 3 + 1];
-    uint o2 = outIndices[gid * 3 + 2];
-
-    uint inputTriIdx = gid / 2;
-    uint base = inputTriIdx * 4 * 13;
-
-    float2 p0 = float2(outVerts[base + o0*13], outVerts[base + o0*13 + 1]);
-    float2 p1 = float2(outVerts[base + o1*13], outVerts[base + o1*13 + 1]);
-    float2 p2 = float2(outVerts[base + o2*13], outVerts[base + o2*13 + 1]);
-
-    float minX = min(min(p0.x, p1.x), p2.x);
-    float maxX = max(max(p0.x, p1.x), p2.x);
-    float minY = min(min(p0.y, p1.y), p2.y);
-    float maxY = max(max(p0.y, p1.y), p2.y);
-
-    float sw = float(screenTileCounts.x * TILE_SIZE);
-    float sh = float(screenTileCounts.y * TILE_SIZE);
-    if (maxX < 0.0 || minX >= sw) return;
-    if (maxY < 0.0 || minY >= sh) return;
-
-    uint tx0 = uint(max(0.0, floor(minX / float(TILE_SIZE))));
-    uint tx1 = uint(min(float(screenTileCounts.x - 1), floor(maxX / float(TILE_SIZE))));
-    uint ty0 = uint(max(0.0, floor(minY / float(TILE_SIZE))));
-    uint ty1 = uint(min(float(screenTileCounts.y - 1), floor(maxY / float(TILE_SIZE))));
-
-    for (uint ty = ty0; ty <= ty1; ty++) {
-        for (uint tx = tx0; tx <= tx1; tx++) {
-            uint tileIdx = ty * screenTileCounts.x + tx;
-            uint slot = atomic_fetch_add_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
-            if (slot < MAX_PER_TILE) {
-                binData[tileIdx * MAX_PER_TILE + slot] = gid;
-            } else {
-                atomic_fetch_sub_explicit(&binCounts[tileIdx], 1, memory_order_relaxed);
-            }
-        }
-    }
-}
-
 kernel void rasterize_pass(
     device const float* outVerts [[buffer(0)]],
     device const uint* outIndices [[buffer(1)]],
