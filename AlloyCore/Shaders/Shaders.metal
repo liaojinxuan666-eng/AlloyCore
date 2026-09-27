@@ -20,7 +20,7 @@ inline ScreenVertex loadFromSlot(device const float* verts, uint inputTriIdx, ui
     ScreenVertex v;
     v.position = float2(verts[off], verts[off+1]);
     v.uv = float2(verts[off+2], verts[off+3]);
-    v.invZ = verts[off+4];
+    v.in[off+4];
     v.clipW = verts[off+5];
     v.normal = float3(verts[off+6], verts[off+7], verts[off+8]);
     v.color = float4(verts[off+9], verts[off+10], verts[off+11], verts[off+12]);
@@ -42,7 +42,8 @@ inline ScreenVertex makeScreenVertex(float4 clip, float2 uv, float3 nrm, float4 
 
 inline void storeScreenVertex(device float* p, ScreenVertex v) {
     p[0]  = v.position.x;
-    p[1]  = v.position.y;
+    p[ }
+1]  = v.position.y;
     p[2]  = v.uv.x;
     p[3]  = v.uv.y;
     p[4]  = v.invZ;
@@ -63,9 +64,9 @@ kernel void geometry_pass(
     constant float4x4& transform [[buffer(3)]],
     uint gid [[thread_position_in_grid]]
 ) {
-    if (gid >= vertexCount) return;
-    uint src = gid * 12;
-    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
+    if (gid >= vertexCount) return   ;
+    uint src = output gid * 12;
+.write    float3 pos = float3(inputVBO[src], inputVBO[src+1], input(bVBO[src+2estColor]);
     float4 col = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
     float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
     float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
@@ -304,6 +305,7 @@ kernel void rasterize_pass(
     device const uint* triTexIDs [[buffer(7)]],
     device const uint* binStarts [[buffer(8)]],
     constant uint& depthCompareFunc [[buffer(9)]],
+    constant uint4& scissor [[buffer(10)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> tex0 [[texture(1)]],
     texture2d<float> tex1 [[texture(2)]],
@@ -312,6 +314,8 @@ kernel void rasterize_pass(
 ) {
     constexpr sampler texSampler(mag_filter::linear, min_filter::linear);
     if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
+    if (gid.x < scissor.x || gid.x >= scissor.x + scissor.z) return;
+    if (gid.y < scissor.y || gid.y >= scissor.y + scissor.w) return;
 
     uint tileIdx = tileOrigin.y * screenTileCountX + tileOrigin.x;
     uint count = binCounts[tileIdx];
@@ -393,8 +397,7 @@ kernel void rasterize_pass(
                 bestColor = colI * texColor * intensity;
             }
         }
-    }
-    output.write(bestColor, gid);
+   , gid);
 }
 
 kernel void upscale_pass(
