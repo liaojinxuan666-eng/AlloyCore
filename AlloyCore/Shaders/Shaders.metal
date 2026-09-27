@@ -42,8 +42,7 @@ inline ScreenVertex makeScreenVertex(float4 clip, float2 uv, float3 nrm, float4 
 
 inline void storeScreenVertex(device float* p, ScreenVertex v) {
     p[0]  = v.position.x;
-    p[ }
-1]  = v.position.y;
+    p[1]  = v.position.y;
     p[2]  = v.uv.x;
     p[3]  = v.uv.y;
     p[4]  = v.invZ;
