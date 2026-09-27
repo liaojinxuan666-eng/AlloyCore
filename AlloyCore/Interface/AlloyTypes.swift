@@ -52,27 +52,21 @@ public enum AlloyBlendOp: UInt32 {
     case max             = 4
 }
 
+
 public struct AlloyPipelineDescriptor {
     public var depthTestEnabled: Bool = true
     public var depthWriteEnabled: Bool = true
     public var depthCompareFunc: AlloyCompareFunc = .less
     public var cullMode: AlloyCullMode = .back
     public var blendEnabled: Bool = false
+    public var srcColorBlend: AlloyBlendFactor = .one
+    public var dstColorBlend: AlloyBlendFactor = .zero
+    public var colorBlendOp: AlloyBlendOp = .add
+    public var srcAlphaBlend: AlloyBlendFactor = .one
+    public var dstAlphaBlend: AlloyBlendFactor = .zero
+    public var alphaBlendOp: AlloyBlendOp = .add
     public var shaderID: UInt32 = 0
     public init() {}
-}
-
-public struct AlloyTextureDescriptor {
-    public var width: Int
-    public var height: Int
-    public var format: AlloyPixelFormat
-    public var data: [UInt8]?
-    public init(width: Int, height: Int, format: AlloyPixelFormat = .rgba8Unorm, data: [UInt8]? = nil) {
-        self.width = width
-        self.height = height
-        self.format = format
-        self.data = data
-    }
 }
 
 public struct AlloyComputePipelineDescriptor {
