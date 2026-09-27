@@ -22,6 +22,7 @@ import Foundation
 //   0x10 BIND_COMPUTE_PIPELINE     [handle]                                         2
 //   0x11 BIND_COMPUTE_VERTEX_POOL  [slot][poolOffsetFloats][byteOffsetFloats]       4
 //   0x12 COMPUTE_DISPATCH          [gx][gy][gz]                                     4
+//   0x13 SET_SCISSOR               [x][y][w][h]                                     5
 
 public enum AlloyOpcode: UInt32 {
     case drawIndexed             = 0x01
@@ -36,6 +37,7 @@ public enum AlloyOpcode: UInt32 {
     case bindComputePipeline     = 0x10
     case bindComputeVertexPool   = 0x11
     case computeDispatch         = 0x12
+    case setScissor              = 0x13
 }
 
 public enum AlloyOpcodeLength {
@@ -90,6 +92,9 @@ public enum AlloyOpcodeLength {
 
         case .computeDispatch:
             return 4
+
+        case .setScissor:
+            return 5
         }
     }
 
@@ -112,6 +117,7 @@ public enum AlloyOpcodeLength {
         case .bindComputePipeline:   return "BIND_COMPUTE_PIPELINE"
         case .bindComputeVertexPool: return "BIND_COMPUTE_VERTEX_POOL"
         case .computeDispatch:       return "COMPUTE_DISPATCH"
+        case .setScissor:            return "SET_SCISSOR"
         }
     }
 }
