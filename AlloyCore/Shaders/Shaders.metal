@@ -261,7 +261,7 @@ kernel void rasterize_pass(
     float closestInvZ = -1e9;
 
     for (uint t = 0; t < count; t++) {
-        uint slotIdx = binData[tileIdx * MAX_PER_TILE + t];
+        uint slotIdx = binData[start + t];
         uint o0 = outIndices[slotIdx * 3];
         if (o0 == 0xFFFFFFFF) continue;
         uint o1 = outIndices[slotIdx * 3 + 1];
