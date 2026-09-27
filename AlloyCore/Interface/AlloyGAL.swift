@@ -67,7 +67,7 @@ public class AlloyGAL {
         guard Int(handle) < pipelines.count else { return }
         pipelines[Int(handle)] = nil
     }
-    
+
     public func createComputePipeline(_ desc: AlloyComputePipelineDescriptor) -> AlloyComputePipelineHandle {
         let handle = UInt32(computePipelines.count)
         computePipelines.append(desc)
@@ -95,6 +95,7 @@ public class AlloyGAL {
         frameCommandBuffer.append(desc.cullMode.rawValue)
         frameCommandBuffer.append(desc.blendEnabled ? 1 : 0)
         frameCommandBuffer.append(desc.shaderID)
+        frameCommandBuffer.append(desc.depthCompareFunc.rawValue)
     }
 
     public func setViewport(width: Int, height: Int) {
@@ -120,7 +121,7 @@ public class AlloyGAL {
         frameCommandBuffer.append(indexCount)
         frameCommandBuffer.append(textureID)
     }
-    
+
     public func bindComputePipeline(_ handle: AlloyComputePipelineHandle) {
         guard Int(handle) < computePipelines.count,
               computePipelines[Int(handle)] != nil else { return }
@@ -171,7 +172,8 @@ public class AlloyGAL {
         for (i, v) in slice.enumerated() {
             vertexPool[clipStart + i] = v
         }
-AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
+
+        AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
         frameCommandBuffer.append(0x09)
         frameCommandBuffer.append(UInt32(clipStart))
         frameCommandBuffer.append(UInt32(slice.count))
@@ -219,7 +221,7 @@ AlloyLog.log("updVB h=\(handle) off=\(clipStart) n=\(slice.count)")
         }
     }
 
-    // MARK: - 纹理（v0.3.0 地基）
+    // MARK: - 纹理
 
     public func createTexture(_ desc: AlloyTextureDescriptor) -> AlloyTextureHandle {
         let mtlDesc = MTLTextureDescriptor.texture2DDescriptor(
