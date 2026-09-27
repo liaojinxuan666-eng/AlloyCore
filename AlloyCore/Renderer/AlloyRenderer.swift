@@ -175,6 +175,8 @@ public class AlloyRenderer {
                                                 options: .storageModePrivate)
             binDataBuffer = device.makeBuffer(length: numTiles * maxTrianglesPerTile * MemoryLayout<UInt32>.size,
                                               options: .storageModePrivate)
+            binStartsBuffer = device.makeBuffer(length: numTiles * MemoryLayout<UInt32>.size,
+                                                options: .storageModePrivate)
             binTileCountX = tileCountX
             binTileCountY = tileCountY
         }
