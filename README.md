@@ -68,6 +68,7 @@ AlloyCore/
 ▼
 [每个 tile 的三角形索引列表]
 │ 4. rasterize_pass (每线程组处理一个 tile)
+│    含 8-way depth compare、Scissor 剔除
 ▼
 [低分辨率纹理 (renderScale = 0.5)]
 │ 5. upscale_pass
@@ -78,10 +79,13 @@ AlloyCore/
 - 透视校正插值（UV 和颜色都用 invZ 加权）
 - 近平面裁剪（避免 w≤0 除零和三角形翻转）
 - Tile Binning（O(triangles) 而非 O(tiles × triangles)）
-- **三趟 binning：无每 tile 容量上限**（v0.5.0）
-- Early-Z（逐像素深度测试）
-- 背面剔除
+- 三趟 binning：无每 tile 容量上限（v0.5.0）
+- **8 种深度比较函数**（v0.6.0）
+- **Scissor Rect**（v0.6.0）
+- **完整 Blend 状态编码**（v0.6.0，待 Render Pass 时启用）
 - **GPU Compute 顶点动画**（v0.4.0）
+- 背面剔除
+- Early-Z（逐像素深度测试）
 
 ---
 
@@ -119,7 +123,7 @@ GAL 与 Renderer 之间的私有协议，[UInt32] 数组。唯一真相源是 Al
 Opcode 名称 参数 总长度
 0x01 DRAW_INDEXED [globalIndexStart][indexCount][textureID] 4
 0x02 CLEAR_COLOR [r][g][b][a] (bitPattern) 5
-0x03 BIND_PIPELINE [depthTest][cullMode][blend][shaderID] 5
+0x03 BIND_PIPELINE [depthTest][cullMode][blend][shaderID][depthFunc][depthWrite][srcCol][dstCol][colOp][srcAlpha][dstAlpha][alphaOp] 13
 0x04 SET_VIEWPORT [w][h] (bitPattern) 3
 0x05 (未使用) — —
 0x06 SET_TRANSFORM [16 floats as bitPattern] 17
@@ -130,6 +134,7 @@ Opcode 名称 参数 总长度
 0x10 BIND_COMPUTE_PIPELINE [handle] 2
 0x11 BIND_COMPUTE_VERTEX_POOL [slot][poolOffsetFloats][byteOffsetFloats] 4
 0x12 COMPUTE_DISPATCH [threadCount][1][1] 4
+0x13 SET_SCISSOR [x][y][w][h] 5
 
  
 修改协议时两处必须同步：
@@ -159,6 +164,7 @@ destroyComputePipeline(handle)
 clearColor(r, g, b, a)
 bindPipeline(handle)
 setViewport(width, height)
+setScissor(x, y, width, height)         // v0.6.0
 setTransform(matrix: [Float])
  
 动态 buffer 更新：
@@ -244,7 +250,7 @@ buffer(5): constant uint& totalOutputSlots
 buffer(6): constant uint2& screenTileCounts
 buffer(7): constant uint& binDataCapacity
  
-rasterize_pass：
+rasterize_pass（v0.6.0 扩展）：
 buffer(0): device const float* outVerts
 buffer(1): device const uint* outIndices
 buffer(2): device const uint* binCounts
@@ -254,6 +260,8 @@ buffer(5): constant uint& depthTestEnabled
 buffer(6): constant uint& cullMode
 buffer(7): device const uint* triTexIDs
 buffer(8): device const uint* binStarts
+buffer(9): constant uint& depthCompareFunc
+buffer(10): constant uint4& scissor
 texture(0): texture2d<float, access::write> output
 texture(1): texture2d<float> tex0
 texture(2): texture2d<float> tex1
@@ -304,7 +312,25 @@ Compute dispatch 结构复杂（shader 名、threadgroup 尺寸、多 buffer 绑
  
 6. 为什么 GPU 顶点动画读 origin 快照，而不是原地累加？（v0.4.0）
  
-原地累加会漂移：sin(t) 的数值积分误差随时间放大，几十秒后几何炸开。正确做法是每帧 verts[i] = origin[i] + sin(t) * A——绝对值写入，永远不漂移。 
+原地累加会漂移：sin(t) 的数值积分误差随时间放大，几十秒后几何炸开。正确做法是每帧 verts[i] = origin[i] + sin(t) * A——绝对值写入，永远不漂移。
+ 
+7. 为什么深度比较用 invZ > closestInvZ 而不是 depth < closestDepth？（v0.6.0）
+ 
+invZ = 1/w，越大越近。深度空间里"更近 = 深度值更小"，所以 D3D/Vulkan 的 .less（新片元更近）对应到我们的 invZ 空间就是 invZ > closestInvZ。映射表：
+AlloyCompareFunc 逆 Z 空间判据
+.never false
+.less invZ > closestInvZ
+.equal abs(invZ - closestInvZ) < ε
+.lessEqual invZ >= closestInvZ
+.greater invZ < closestInvZ
+.notEqual abs(invZ - closestInvZ) >= ε
+.greaterEqual invZ <= closestInvZ
+.always true
+
+ 
+8. 为什么 Scissor 默认用"哨兵值"而不是直接用全屏？（v0.6.0）
+ 
+setScissor 是可选命令。GAL 默认编码 (0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) 作为哨兵，Renderer 检测到哨兵后填入全屏。这样"没调过 setScissor"和"调了全屏"在指令流里能区分——未来做 Render Pass 时有用。 
  
 性能基线（iPhone，iOS 17+）
 场景 三角形 FPS
@@ -367,19 +393,27 @@ v0.5.0 Profiling & Binning ✅
 [x] Per-pass CPU 计时（HUD 显示 6 个 pass）
 [x] 三趟 binning（count / offset / fill）
 [x] 移除 MAX_PER_TILE = 256 硬上限 
-v0.6.0 Depth & Rasterization
-[ ] 深度比较函数（less / greater / equal 等）
-[ ] 深度写入开关
-[ ] 完整混合模式（srcBlend / dstBlend / blendOp）
-[ ] 模板测试
-[ ] Scissor Rect
-[ ] Edge-function 光栅化（替换当前 2×2 行列式解）
-[ ] 渲染到纹理（Render Pass） 
+v0.6.0 Depth & Blend ✅
+[x] 深度比较函数（8 种 AlloyCompareFunc）
+[x] 深度写入开关（depthWriteEnabled 编码）
+[x] 完整混合模式（AlloyBlendFactor × 12、AlloyBlendOp × 5）
+[x] Scissor Rect（0x13 opcode）
+[x] BIND_PIPELINE 从 5 词扩到 13 词 
+v0.6.1 Edge-function 光栅化（补丁）
+[ ] 用 edge function 替代当前 2×2 行列式解
+[ ] 中高密度场景性能提升
+[ ] 需要 GPU 侧计时数据验证 
 v0.7.0 NVN 前端
 [ ] NVN 调用翻译到 GAL
-[ ] NVN 资源句柄映射
+[ ] NVN 资源句柄映射（NVNbuffer / NVNtexture → GAL handle）
+[ ] NVN 状态映射（nvnCommandBufferSetDepthTestEnable 等）
 [ ] 动态顶点数据流 
-v0.8.0 着色器虚拟机
+v0.8.0 Render Pass
+[ ] 渲染到纹理（多 render target）
+[ ] 真正的深度缓冲区（让 depthWriteEnabled 生效）
+[ ] 真正的 Blend（读 backbuffer）
+[ ] 模板测试 
+v0.9.0 着色器虚拟机
 [ ] DXBC / DXIL 解析
 [ ] SPIR-V 解析
 [ ] 虚拟 ISA
@@ -387,6 +421,7 @@ v0.8.0 着色器虚拟机
 远期
 [ ] D3D11 前端
 [ ] Vulkan 前端
+[ ] GPU 侧 per-pass 计时（MTLCounterSampleBuffer）
 [ ] 性能基线自动化（CI 跑 benchmark，超阈值就红） 
  
 已知问题
@@ -403,13 +438,14 @@ v0.8.0 着色器虚拟机
 ⚠️ 待处理
 • 命令协议单份解析：已部分解决（AlloyOpcodeLength.of），但主 while 里的 switch 仍需手改
 • 资源只增不减：vertexPool / indexPool 只 append，无 destroy
-• 接收但未实现的状态：clearColor、blendEnabled、depthWriteEnabled、viewport 被编码但部分被忽略
+• 接收但未实现的状态：clearColor、blendEnabled、depthWriteEnabled、viewport 被编码但部分被忽略（等 Render Pass）
 • PostFX 是死代码：AlloyAA / AlloySR / AlloySSAA 未接入 renderer
 • NVNFrontend 是占位：纯注释骨架
 • bindings.first 忽略 slot（v0.4.0 遗留）：多 buffer 绑定时会塌缩到第一个
 • dispatchCompute(groups:) 名不副实：实际传的是线程数，不是 group 数
 • dt 参数冗余：vertex_animate_pass 收到但未使用
-• poolVersion bump 后动画跳回原点：uploadGeometry 重传后 origin 快照更新，compute 需重新同步 
+• poolVersion bump 后动画跳回原点：uploadGeometry 重传后 origin 快照更新，compute 需重新同步
+• MAX_PER_TILE warning：v0.5.0 后 kernel 不再使用，暂时保留作 binData 容量估算；未来 binData 动态分配时移除 
  
 终极目标
 [Windows x64 游戏]              [Switch 游戏]           [Vulkan 应用]
