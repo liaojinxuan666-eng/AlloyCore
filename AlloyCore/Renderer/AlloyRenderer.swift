@@ -57,6 +57,8 @@ public class AlloyRenderer {
               let g = library.makeFunction(name: "geometry_pass"),
               let c = library.makeFunction(name: "clip_project_pass"),
               let b = library.makeFunction(name: "binning_pass"),
+              let bc = library.makeFunction(name: "binning_count_pass"),
+              let bo = library.makeFunction(name: "binning_offset_pass"),
               let r = library.makeFunction(name: "rasterize_pass"),
               let u = library.makeFunction(name: "upscale_pass") else {
             return nil
@@ -66,6 +68,8 @@ public class AlloyRenderer {
             geometryPipeline = try device.makeComputePipelineState(function: g)
             clipProjectPipeline = try device.makeComputePipelineState(function: c)
             binningPipeline = try device.makeComputePipelineState(function: b)
+            binningCountPipeline = try device.makeComputePipelineState(function: bc)
+            binningOffsetPipeline = try device.makeComputePipelineState(function: bo)
             rasterizePipeline = try device.makeComputePipelineState(function: r)
             upscalePipeline = try device.makeComputePipelineState(function: u)
         } catch {
