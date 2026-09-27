@@ -11,7 +11,9 @@ import Foundation
 // Opcode table (v0.6.0):
 //   0x01 DRAW_INDEXED              [globalIndexStart][indexCount][textureID]        4
 //   0x02 CLEAR_COLOR               [r][g][b][a]                                     5
-//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID][depthFunc] 6
+//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID][depthFunc] 13
+//                                  [+depthWrite][srcColBlend][dstColBlend][colOp]
+//                                  [+srcAlphaBlend][dstAlphaBlend][alphaOp]
 //   0x04 SET_VIEWPORT              [w][h]                                           3
 //   0x05 (unused)
 //   0x06 SET_TRANSFORM             [16 floats as bitPattern]                       17
