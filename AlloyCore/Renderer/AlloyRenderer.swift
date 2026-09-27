@@ -188,6 +188,7 @@ public class AlloyRenderer {
         var screenTileCounts = SIMD2<UInt32>(tileCountX, tileCountY)
         var screenTileCountX = tileCountX
         var depthTestEnabled: UInt32 = 1
+        var depthCompareFunc: UInt32 = 1
         var cullMode: UInt32 = 0
 
         var ci = 0
@@ -213,6 +214,7 @@ public class AlloyRenderer {
             case .bindPipeline:
                 depthTestEnabled = (rawCommands[ci + 1] == 0) ? 0 : 1
                 cullMode         = rawCommands[ci + 2]
+                depthCompareFunc = rawCommands[ci + 5]
 
             case .updateVertexBuffer:
                 let poolOffset = Int(rawCommands[ci + 1])
@@ -410,6 +412,7 @@ public class AlloyRenderer {
             enc.setBytes(&cullMode, length: MemoryLayout<UInt32>.size, index: 6)
             enc.setBuffer(triTexIDs, offset: 0, index: 7)
             enc.setBuffer(binStarts, offset: 0, index: 8)
+            enc.setBytes(&depthCompareFunc, length: MemoryLayout<UInt32>.size, index: 9)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(tex0, index: 1)
             if textures.count > 1, let tex1 = textures[1] {
