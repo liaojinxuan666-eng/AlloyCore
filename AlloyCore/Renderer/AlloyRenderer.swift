@@ -57,7 +57,6 @@ public class AlloyRenderer {
         guard let library = try? device.makeDefaultLibrary(bundle: bundle),
               let g = library.makeFunction(name: "geometry_pass"),
               let c = library.makeFunction(name: "clip_project_pass"),
-              let b = library.makeFunction(name: "binning_pass"),
               let bc = library.makeFunction(name: "binning_count_pass"),
               let bo = library.makeFunction(name: "binning_offset_pass"),
               let bf = library.makeFunction(name: "binning_fill_pass"),
