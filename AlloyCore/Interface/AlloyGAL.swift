@@ -96,6 +96,13 @@ public class AlloyGAL {
         frameCommandBuffer.append(desc.blendEnabled ? 1 : 0)
         frameCommandBuffer.append(desc.shaderID)
         frameCommandBuffer.append(desc.depthCompareFunc.rawValue)
+        frameCommandBuffer.append(desc.depthWriteEnabled ? 1 : 0)
+        frameCommandBuffer.append(desc.srcColorBlend.rawValue)
+        frameCommandBuffer.append(desc.dstColorBlend.rawValue)
+        frameCommandBuffer.append(desc.colorBlendOp.rawValue)
+        frameCommandBuffer.append(desc.srcAlphaBlend.rawValue)
+        frameCommandBuffer.append(desc.dstAlphaBlend.rawValue)
+        frameCommandBuffer.append(desc.alphaBlendOp.rawValue)
     }
 
     public func setViewport(width: Int, height: Int) {
