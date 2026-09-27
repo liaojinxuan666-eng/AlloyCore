@@ -19,6 +19,8 @@ public class AlloyRenderer {
     var binningPipeline: MTLComputePipelineState!
     var binningCountPipeline: MTLComputePipelineState!
     var binningOffsetPipeline: MTLComputePipelineState!
+    var binningFillPipeline: MTLComputePipelineState!
+    var binStartsBuffer: MTLBuffer?
     var rasterizePipeline: MTLComputePipelineState!
     var upscalePipeline: MTLComputePipelineState!
     let tileSize: Int = 16
