@@ -68,7 +68,6 @@ public class AlloyRenderer {
         do {
             geometryPipeline = try device.makeComputePipelineState(function: g)
             clipProjectPipeline = try device.makeComputePipelineState(function: c)
-            binningPipeline = try device.makeComputePipelineState(function: b)
             binningCountPipeline = try device.makeComputePipelineState(function: bc)
             binningOffsetPipeline = try device.makeComputePipelineState(function: bo)
             binningFillPipeline = try device.makeComputePipelineState(function: bf)
