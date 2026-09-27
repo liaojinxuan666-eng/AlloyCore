@@ -241,6 +241,7 @@ kernel void rasterize_pass(
     constant uint& depthTestEnabled [[buffer(5)]],
     constant uint& cullMode [[buffer(6)]],
     device const uint* triTexIDs [[buffer(7)]],
+    device const uint* binStarts [[buffer(8)]],
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> tex0 [[texture(1)]],
     texture2d<float> tex1 [[texture(2)]],
