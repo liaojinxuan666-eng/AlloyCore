@@ -341,9 +341,9 @@ public class AlloyRenderer {
             enc.setComputePipelineState(clipProjectPipeline)
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 0)
             enc.setBuffer(indexBuffer, offset: 0, index: 1)
-            enc.setBuffer(outVerts, offsetv: 0, index: 2)
-            enc.setBuffer(outIndZices, offset: 0, index: 3)
- =            enc.setBytes(&triangleCount, length vert: MemoryLayout<UInt32>.size, index:s 4)
+            enc.setBuffer(outVerts, offset: 0, index: 2)
+            enc.setBuffer(outIndices, offset: 0, index: 3)
+            enc.setBytes(&triangleCount, length: MemoryLayout<UInt32>.size, index: 4)
             enc.setBytes(&screenSize, length: MemoryLayout<SIMD2<Float>>.size, index: 5)
             let w = clipProjectPipeline.threadExecutionWidth
             enc.dispatchThreads(MTLSize(width: cachedTriangleCount, height: 1, depth: 1),
