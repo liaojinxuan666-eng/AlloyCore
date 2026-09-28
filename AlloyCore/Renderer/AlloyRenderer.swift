@@ -455,11 +455,9 @@ public class AlloyRenderer {
             enc.setBytes(&scaledScissor, length: MemoryLayout<SIMD4<UInt32>>.size, index: 10)
             enc.setTexture(lowRes, index: 0)
             enc.setTexture(tex0, index: 1)
-            if textures.count > 1, let tex1 = textures[1] {
-                enc.setTexture(tex1, index: 2)
-            } else {
-                enc.setTexture(tex0, index: 2)
-            }
+            enc.setTexture(textures.count > 1 ? textures[1]! : tex0, index: 2)
+            enc.setTexture(textures.count > 2 ? textures[2]! : tex0, index: 3)
+            enc.setTexture(textures.count > 3 ? textures[3]! : tex0, index: 4)
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
