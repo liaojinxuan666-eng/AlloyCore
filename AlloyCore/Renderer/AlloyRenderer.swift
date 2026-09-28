@@ -471,6 +471,16 @@ public class AlloyRenderer {
             enc.setTexture(textures.count > 1 ? textures[1]! : tex0, index: 2)
             enc.setTexture(textures.count > 2 ? textures[2]! : tex0, index: 3)
             enc.setTexture(textures.count > 3 ? textures[3]! : tex0, index: 4)
+            for i in 0..<4 {
+                let handle = i < boundSamplerSlots.count ? boundSamplerSlots[i] : 0xFFFFFFFF
+                var chosen = defaultSampler
+                if handle != 0xFFFFFFFF, Int(handle) < samplers.count, let s = samplers[Int(handle)] {
+                    chosen = s
+                }
+                if let s = chosen {
+                    enc.setSamplerState(s, index: i)
+                }
+            }
             let tg = MTLSize(width: tileSize, height: tileSize, depth: 1)
             let groups = MTLSize(width: Int(tileCountX), height: Int(tileCountY), depth: 1)
             enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
