@@ -336,6 +336,12 @@ kernel void rasterize_pass(
     texture2d<float> tex1 [[texture(2)]],
     texture2d<float> tex2 [[texture(3)]],
     texture2d<float> tex3 [[texture(4)]],
+    sampler sam0 [[sampler(0)]],
+    sampler sam1 [[sampler(1)]],
+    sampler sam2 [[sampler(2)]],
+    sampler sam3 [[sampler(3)]],
+    texture2d<float> tex2 [[texture(3)]],
+    texture2d<float> tex3 [[texture(4)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
