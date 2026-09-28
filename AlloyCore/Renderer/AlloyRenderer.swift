@@ -120,7 +120,7 @@ public class AlloyRenderer {
         )
     }
 
-    public func render(drawable: CAMetalDrawable *,
+    public func render(drawable: CAMetalDrawable,
                        textures: [MTLTexture?],
                        computePipelines: [AlloyComputePipelineDescriptor?],
                        computeTime: Float,
