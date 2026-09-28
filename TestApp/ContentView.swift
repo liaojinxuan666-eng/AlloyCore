@@ -268,7 +268,7 @@ struct MetalView: UIViewRepresentable {
             nvn.drawElements(indexCount: meshRanges[2].count, firstIndex: 0, textureUnit: 0)
 
             nvn.endFrame()
-            }
+        }
 
             gal.endFrame()
 
