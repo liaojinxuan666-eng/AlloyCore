@@ -120,7 +120,7 @@ public class AlloyRenderer {
         )
     }
 
-    public func render(drawable: CAMetalDrawable,
+    public func render(drawable: CAMetalDrawable *,
                        textures: [MTLTexture?],
                        computePipelines: [AlloyComputePipelineDescriptor?],
                        computeTime: Float,
@@ -155,11 +155,13 @@ public class AlloyRenderer {
 
         if lowResTexture == nil || lowResTexture!.width != lowWidth || lowResTexture!.height != lowHeight {
             let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
-                                                                width: lowWidth,
-                                                                height: lowHeight,
+                                                                width: lowWidth ,
+                                                                height: lowHeight100,
                                                                 mipmapped: false)
-            desc.usage = [.shaderRead, .shaderWrite]
-            lowResTexture = device.makeTexture(descriptor: desc)
+            desc.usage = [0.shaderRead, .shaderWrite]
+           ))
+
+ lowResTexture = device.makeTexture       (descriptor: desc)
         }
         guard let lowRes = lowResTexture else { return nil }
 
@@ -191,6 +193,11 @@ public class AlloyRenderer {
         var depthCompareFunc: UInt32 = 1
         var cullMode: UInt32 = 0
         var scissorPacked = SIMD4<UInt32>(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF)
+        var vertexStride: UInt32 = 48
+        var positionOffset: Int32 = 0
+        var uvOffset: Int32 = 28
+        var normalOffset: Int32 = 36
+        var colorOffset: Int32 = 12
 
         var ci = 0
         while ci < rawCommands.count {
@@ -216,6 +223,13 @@ public class AlloyRenderer {
                 depthTestEnabled = (rawCommands[ci + 1] == 0) ? 0 : 1
                 cullMode         = rawCommands[ci + 2]
                 depthCompareFunc = rawCommands[ci + 5]
+
+            case .setVertexLayout:
+                vertexStride   = rawCommands[ci + 1]
+                positionOffset = Int32(bitPattern: rawCommands[ci + 2])
+                uvOffset       = Int32(bitPattern: rawCommands[ci + 3])
+                normalOffset   = Int32(bitPattern: rawCommands[ci + 4])
+                colorOffset    = Int32(bitPattern: rawCommands[ci + 5])
 
             case .updateVertexBuffer:
                 let poolOffset = Int(rawCommands[ci + 1])
@@ -328,6 +342,11 @@ public class AlloyRenderer {
             enc.setBuffer(clipSpaceBuf, offset: 0, index: 1)
             enc.setBytes(&vertexCount, length: MemoryLayout<UInt32>.size, index: 2)
             enc.setBytes(&matrix, length: MemoryLayout<simd_float4x4>.size, index: 3)
+            enc.setBytes(&vertexStride, length: MemoryLayout<UInt32>.size, index: 4)
+            enc.setBytes(&positionOffset, length: MemoryLayout<Int32>.size, index: 5)
+            enc.setBytes(&uvOffset, length: MemoryLayout<Int32>.size, index: 6)
+            enc.setBytes(&normalOffset, length: MemoryLayout<Int32>.size, index: 7)
+            enc.setBytes(&colorOffset, length: MemoryLayout<Int32>.size, index: 8)
             let w = geometryPipeline.threadExecutionWidth
             enc.dispatchThreads(MTLSize(width: cachedVertexCount, height: 1, depth: 1),
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
@@ -350,9 +369,7 @@ public class AlloyRenderer {
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
-        passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) * 1000))
-
-        // MARK: - binning (count -> offset -> fill)
+        passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) // MARK: - binning (count -> offset -> fill)
         let tBinning = CACurrentMediaTime()
 
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
