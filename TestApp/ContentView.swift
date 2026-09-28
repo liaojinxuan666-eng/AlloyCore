@@ -26,7 +26,21 @@ struct MetalView: UIViewRepresentable {
         let yellow = TextureHelper.makeCheckerboardPixels(tint: (200, 200, 50))
         _ = context.coordinator.gal.createTexture(
             AlloyTextureDescriptor(width: yellow.width, height: yellow.height, data: yellow.pixels))
+            
+        var linearDesc = AlloySamplerDescriptor()
+        linearDesc.magFilter = .linear
+        linearDesc.minFilter = .linear
+        let linearSamp = context.coordinator.gal.createSampler(linearDesc)
 
+        var nearestDesc = AlloySamplerDescriptor()
+        nearestDesc.magFilter = .nearest
+        nearestDesc.minFilter = .nearest
+        let nearestSamp = context.coordinator.gal.createSampler(nearestDesc)
+
+        context.coordinator.gal.bindSampler(linearSamp, slot: 0)
+        context.coordinator.gal.bindSampler(linearSamp, slot: 1)
+        context.coordinator.gal.bindSampler(nearestSamp, slot: 2)
+        context.coordinator.gal.bindSampler(nearestSamp, slot: 3)
         context.coordinator.buildScene()
         context.coordinator.uploadScene(to: renderer)
 
