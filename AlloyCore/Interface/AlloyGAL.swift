@@ -374,6 +374,8 @@ public class AlloyGAL {
         guard Int(handle) < textures.count else { return nil }
         return textures[Int(handle)]
     }
+    
+    public func getSamplers() -> [MTLSamplerState?] { samplers }
 
     public func getVertexPool() -> [Float] { vertexPool }
     public func getIndexPool() -> [UInt32] { indexPool }
