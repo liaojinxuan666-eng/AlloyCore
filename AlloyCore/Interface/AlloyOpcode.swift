@@ -3,17 +3,13 @@ import Foundation
 // MARK: - AlloyCore Command Protocol
 //
 // Single source of truth for the GAL <-> Renderer command stream.
-// Every opcode and its payload length are defined here.
 //
-// Stream format: [opcode: UInt32][payload: UInt32...]
-// All payloads are UInt32; floats are encoded via .bitPattern.
-//
-// Opcode table (v0.6.0):
+// Opcode table (v0.7.0):
 //   0x01 DRAW_INDEXED              [globalIndexStart][indexCount][textureID]        4
 //   0x02 CLEAR_COLOR               [r][g][b][a]                                     5
-//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID][depthFunc] 13
-//                                  [+depthWrite][srcColBlend][dstColBlend][colOp]
-//                                  [+srcAlphaBlend][dstAlphaBlend][alphaOp]
+//   0x03 BIND_PIPELINE             [depthTest][cullMode][blend][shaderID][depthFunc]
+//                                  [+depthWrite][srcCol][dstCol][colOp]
+//                                  [+srcAlpha][dstAlpha][alphaOp]                 13
 //   0x04 SET_VIEWPORT              [w][h]                                           3
 //   0x05 (unused)
 //   0x06 SET_TRANSFORM             [16 floats as bitPattern]                       17
@@ -25,6 +21,7 @@ import Foundation
 //   0x11 BIND_COMPUTE_VERTEX_POOL  [slot][poolOffsetFloats][byteOffsetFloats]       4
 //   0x12 COMPUTE_DISPATCH          [gx][gy][gz]                                     4
 //   0x13 SET_SCISSOR               [x][y][w][h]                                     5
+//   0x14 SET_VERTEX_LAYOUT         [stride][posOff][uvOff][nrmOff][colOff]          6
 
 public enum AlloyOpcode: UInt32 {
     case drawIndexed             = 0x01
@@ -40,12 +37,11 @@ public enum AlloyOpcode: UInt32 {
     case bindComputeVertexPool   = 0x11
     case computeDispatch         = 0x12
     case setScissor              = 0x13
+    case setVertexLayout         = 0x14
 }
 
 public enum AlloyOpcodeLength {
 
-    /// Returns the total length (in UInt32 words) of the command starting at
-    /// index `i`, or nil if the stream is malformed / truncated.
     public static func of(_ cmd: [UInt32], at i: Int) -> Int? {
         guard i >= 0, i < cmd.count else { return nil }
         guard let op = AlloyOpcode(rawValue: cmd[i]) else { return nil }
@@ -97,6 +93,9 @@ public enum AlloyOpcodeLength {
 
         case .setScissor:
             return 5
+
+        case .setVertexLayout:
+            return 6
         }
     }
 
@@ -120,6 +119,7 @@ public enum AlloyOpcodeLength {
         case .bindComputeVertexPool: return "BIND_COMPUTE_VERTEX_POOL"
         case .computeDispatch:       return "COMPUTE_DISPATCH"
         case .setScissor:            return "SET_SCISSOR"
+        case .setVertexLayout:       return "SET_VERTEX_LAYOUT"
         }
     }
 }
