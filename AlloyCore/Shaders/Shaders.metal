@@ -348,7 +348,7 @@ kernel void rasterize_pass(
 
     float2 pixel = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0depth);
+    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0);
     float closestInvZ = -1e9;
 
     for (uint t = 0; t < count; t++) {
