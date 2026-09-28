@@ -41,6 +41,7 @@ public class AlloyRenderer {
     var binTileCountX: UInt32 = 0
     var binTileCountY: UInt32 = 0
     let library: MTLLibrary
+    var defaultSampler: MTLSamplerState?
     private var computePipelineCache: [String: MTLComputePipelineState] = [:]
     private var currentComputeHandle: UInt32 = 0xFFFFFFFF
     private var pendingDispatches: [(handle: UInt32, groups: SIMD3<UInt32>, bindings: [(slot: Int, floatOffset: Int)])] = []
