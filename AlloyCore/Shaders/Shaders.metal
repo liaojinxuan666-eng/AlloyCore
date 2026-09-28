@@ -334,6 +334,8 @@ kernel void rasterize_pass(
     texture2d<float, access::write> output [[texture(0)]],
     texture2d<float> tex0 [[texture(1)]],
     texture2d<float> tex1 [[texture(2)]],
+    texture2d<float> tex2 [[texture(3)]],
+    texture2d<float> tex3 [[texture(4)]],
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
