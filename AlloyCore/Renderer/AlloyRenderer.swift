@@ -129,6 +129,8 @@ public class AlloyRenderer {
 
     public func render(drawable: CAMetalDrawable,
                        textures: [MTLTexture?],
+                       samplers: [MTLSamplerState?],
+                       boundSamplerSlots: [UInt32],
                        computePipelines: [AlloyComputePipelineDescriptor?],
                        computeTime: Float,
                        rawCommands: [UInt32]) -> MTLCommandBuffer? {
