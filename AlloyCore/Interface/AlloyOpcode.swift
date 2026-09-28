@@ -22,6 +22,7 @@ import Foundation
 //   0x12 COMPUTE_DISPATCH          [gx][gy][gz]                                     4
 //   0x13 SET_SCISSOR               [x][y][w][h]                                     5
 //   0x14 SET_VERTEX_LAYOUT         [stride][posOff][uvOff][nrmOff][colOff]          6
+//   0x15 BIND_SAMPLER              [slot][handle]                                  3
 
 public enum AlloyOpcode: UInt32 {
     case drawIndexed             = 0x01
