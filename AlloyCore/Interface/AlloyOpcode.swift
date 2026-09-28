@@ -124,6 +124,7 @@ public enum AlloyOpcodeLength {
         case .computeDispatch:       return "COMPUTE_DISPATCH"
         case .setScissor:            return "SET_SCISSOR"
         case .setVertexLayout:       return "SET_VERTEX_LAYOUT"
+        case .bindSampler:           return "BIND_SAMPLER"
         }
     }
 }
