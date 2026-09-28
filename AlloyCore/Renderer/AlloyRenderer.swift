@@ -156,7 +156,7 @@ public class AlloyRenderer {
         if lowResTexture == nil || lowResTexture!.width != lowWidth || lowResTexture!.height != lowHeight {
             let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
                                                                 width: lowWidth ,
-                                                                height: lowHeight100,
+                                                                height: lowHeight,
                                                                 mipmapped: false)
             desc.usage = [0.shaderRead, .shaderWrite]
            ))
