@@ -53,6 +53,26 @@ public enum AlloyBlendOp: UInt32 {
     case max             = 4
 }
 
+public enum AlloyFilterMode: UInt32 {
+    case nearest = 0
+    case linear  = 1
+}
+
+public enum AlloyAddressMode: UInt32 {
+    case clampToEdge = 0
+    case repeatMode  = 1
+    case mirror      = 2
+}
+
+public struct AlloySamplerDescriptor {
+    public var magFilter: AlloyFilterMode = .linear
+    public var minFilter: AlloyFilterMode = .linear
+    public var addressU: AlloyAddressMode = .clampToEdge
+    public var addressV: AlloyAddressMode = .clampToEdge
+    public var addressW: AlloyAddressMode = .clampToEdge
+    public init() {}
+}
+
 public struct AlloyVertexLayout {
     public var stride: UInt32
     public var positionOffset: Int32
