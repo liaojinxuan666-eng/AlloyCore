@@ -66,6 +66,12 @@ public class AlloyRenderer {
             return nil
         }
         self.library = library
+        let samplerDesc = MTLSamplerDescriptor()
+        samplerDesc.magFilter = .linear
+        samplerDesc.minFilter = .linear
+        samplerDesc.sAddressMode = .clampToEdge
+        samplerDesc.tAddressMode = .clampToEdge
+        self.defaultSampler = device.makeSamplerState(descriptor: samplerDesc)
         do {
             geometryPipeline = try device.makeComputePipelineState(function: g)
             clipProjectPipeline = try device.makeComputePipelineState(function: c)
