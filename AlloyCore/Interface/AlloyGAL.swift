@@ -119,6 +119,15 @@ public class AlloyGAL {
         frameCommandBuffer.append(UInt32(max(0, height)))
     }
 
+    public func setVertexLayout(_ layout: AlloyVertexLayout) {
+        frameCommandBuffer.append(AlloyOpcode.setVertexLayout.rawValue)
+        frameCommandBuffer.append(layout.stride)
+        frameCommandBuffer.append(UInt32(bitPattern: layout.positionOffset))
+        frameCommandBuffer.append(UInt32(bitPattern: layout.uvOffset))
+        frameCommandBuffer.append(UInt32(bitPattern: layout.normalOffset))
+        frameCommandBuffer.append(UInt32(bitPattern: layout.colorOffset))
+    }
+
     public func setTransform(matrix: [Float]) {
         guard matrix.count == 16 else { return }
         frameCommandBuffer.append(0x06)
@@ -235,8 +244,6 @@ public class AlloyGAL {
             frameCommandBuffer.append(v)
         }
     }
-
-    // MARK: - 纹理
 
     public func createTexture(_ desc: AlloyTextureDescriptor) -> AlloyTextureHandle {
         let mtlDesc = MTLTextureDescriptor.texture2DDescriptor(
