@@ -368,7 +368,9 @@ public class AlloyRenderer {
                                 threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
             enc.endEncoding()
         }
-        passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) // MARK: - binning (count -> offset -> fill)
+        passTimings.append(AlloyPassTiming(name: "clip_project", ms: (CACurrentMediaTime() - tClip) * 1000))
+
+        // MARK: - binning (count -> offset -> fill)
         let tBinning = CACurrentMediaTime()
 
         if let blit = cmdBuffer.makeBlitCommandEncoder() {
