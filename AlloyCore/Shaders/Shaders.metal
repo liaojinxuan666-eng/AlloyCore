@@ -394,7 +394,7 @@ kernel void rasterize_pass(
             if (depthTestEnabled == 0) {
                 passes = true;
             } else {
-                switch ( {
+                switch (depthCompareFunc) {
                     case 0: passes = false; break;
                     case 1: passes = (invZ > closestInvZ); break;
                     case 2: passes = (abs(invZ - closestInvZ) < 1e-6); break;
