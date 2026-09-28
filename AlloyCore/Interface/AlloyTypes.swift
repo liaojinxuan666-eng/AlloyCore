@@ -52,6 +52,26 @@ public enum AlloyBlendOp: UInt32 {
     case max             = 4
 }
 
+public struct AlloyVertexLayout {
+    public var stride: UInt32
+    public var positionOffset: Int32
+    public var uvOffset: Int32
+    public var normalOffset: Int32
+    public var colorOffset: Int32
+
+    public init(stride: UInt32 = 48,
+                positionOffset: Int32 = 0,
+                uvOffset: Int32 = 28,
+                normalOffset: Int32 = 36,
+                colorOffset: Int32 = 12) {
+        self.stride = stride
+        self.positionOffset = positionOffset
+        self.uvOffset = uvOffset
+        self.normalOffset = normalOffset
+        self.colorOffset = colorOffset
+    }
+}
+
 public struct AlloyTextureDescriptor {
     public var width: Int
     public var height: Int
