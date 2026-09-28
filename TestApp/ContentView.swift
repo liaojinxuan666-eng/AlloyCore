@@ -15,6 +15,9 @@ struct MetalView: UIViewRepresentable {
         guard let renderer = AlloyRenderer() else { return view }
         context.coordinator.renderer = renderer
 
+        // 把 GAL 附着到 NVN 前端
+        context.coordinator.nvn.attach(to: context.coordinator.gal)
+
         let blue = TextureHelper.makeCheckerboardPixels(isRed: false)
         _ = context.coordinator.gal.createTexture(
             AlloyTextureDescriptor(width: blue.width, height: blue.height, data: blue.pixels))
@@ -42,9 +45,15 @@ struct MetalView: UIViewRepresentable {
         var middleVerts: [Float] = []
 
         let gal = AlloyGAL()
+        let nvn = NVNFrontend()
         var pipelineHandle: AlloyPipelineHandle = 0
         var computeHandle: AlloyComputePipelineHandle = 0
         var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
+
+        // v0.7.0 Step 3b: 走 NVN 路径画第一组（默认关，改成 true 测试）
+        let useNVNForMesh0 = false
+        var nvnMesh0VertexId: UInt32 = 0xFFFFFFFF
+        var nvnMesh0IndexId:  UInt32 = 0xFFFFFFFF
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
@@ -59,10 +68,20 @@ struct MetalView: UIViewRepresentable {
                 if i == 1 { middleVerts = grid.vertices }
             }
 
+            if useNVNForMesh0 {
+                let mesh0 = meshRanges[0]
+                nvnMesh0VertexId = nvn.registerBuffer(galHandle: mesh0.vbo)
+                nvnMesh0IndexId  = nvn.registerBuffer(galHandle: mesh0.ibo)
+            }
+
             var pso = AlloyPipelineDescriptor()
             pso.depthTestEnabled = true
+            pso.depthWriteEnabled = true
+            pso.depthCompareFunc = .less
             pso.cullMode = .back
+            pso.blendEnabled = false
             pipelineHandle = gal.createPipeline(pso)
+
             computeHandle = gal.createComputePipeline(
                 AlloyComputePipelineDescriptor(shaderName: "vertex_animate_pass",
                                                threadsPerThreadgroup: SIMD3<UInt32>(64, 1, 1)))
@@ -194,15 +213,44 @@ struct MetalView: UIViewRepresentable {
             gal.beginFrame()
             gal.clearColor(r: 0.1, g: 0.1, b: 0.15, a: 1.0)
             gal.setViewport(width: Int(width), height: Int(height))
-            gal.bindPipeline(pipelineHandle)
             gal.setTransform(matrix: matrixArray)
 
+            let startIdx: Int
+            if useNVNForMesh0 {
+                // 第一组走 NVN 前端
+                nvn.beginFrame()
+                nvn.setVertexLayout(stride: 48,
+                                    positionOffset: 0,
+                                    uvOffset: 28,
+                                    normalOffset: 36,
+                                    colorOffset: 12)
+                nvn.setDepthTestEnable(true)
+                nvn.setDepthWriteEnable(true)
+                nvn.setDepthFunc(.less)
+                nvn.setCullMode(enable: true, face: .back)
+                nvn.setBlendEnable(false)
+                nvn.bindVertexBuffer(nvnMesh0VertexId)
+                nvn.bindIndexBuffer(nvnMesh0IndexId)
+                nvn.bindTextureSlot(0, unit: 0)
+                nvn.drawElements(indexCount: meshRanges[0].count,
+                                 firstIndex: 0,
+                                 textureUnit: 0)
+                nvn.endFrame()
+                startIdx = 1
+            } else {
+                gal.bindPipeline(pipelineHandle)
+                startIdx = 0
+            }
+
+            // 中间组 compute 抖动
             gal.computeTime = time
             gal.bindComputePipeline(computeHandle)
             gal.bindComputeBuffer(slot: 0, handle: meshRanges[1].vbo)
             gal.dispatchCompute(groups: SIMD3<UInt32>(UInt32(middleVerts.count / 12), 1, 1))
 
-            for mesh in meshRanges {
+            // 剩下两组（或全部三组，看开关）
+            for i in startIdx..<meshRanges.count {
+                let mesh = meshRanges[i]
                 gal.drawIndexed(iboHandle: mesh.ibo,
                                 indexCount: mesh.count,
                                 firstIndex: 0,
