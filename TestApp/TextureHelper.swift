@@ -2,8 +2,8 @@ import Metal
 import simd
 
 class TextureHelper {
-    // 新方法：返回像素数据，让 GAL 建纹理
-    static func makeCheckerboardPixels(isRed: Bool = false) -> (pixels: [UInt8], width: Int, height: Int) {
+
+    static func makeCheckerboardPixels(tint: (UInt8, UInt8, UInt8) = (50, 50, 150)) -> (pixels: [UInt8], width: Int, height: Int) {
         let width = 64
         let height = 64
         var pixelData = [UInt8](repeating: 0, count: width * height * 4)
@@ -18,15 +18,10 @@ class TextureHelper {
                     pixelData[offset + 1] = 255
                     pixelData[offset + 2] = 255
                     pixelData[offset + 3] = 255
-                } else if isRed {
-                    pixelData[offset]     = 200
-                    pixelData[offset + 1] = 50
-                    pixelData[offset + 2] = 50
-                    pixelData[offset + 3] = 255
                 } else {
-                    pixelData[offset]     = 50
-                    pixelData[offset + 1] = 50
-                    pixelData[offset + 2] = 150
+                    pixelData[offset]     = tint.0
+                    pixelData[offset + 1] = tint.1
+                    pixelData[offset + 2] = tint.2
                     pixelData[offset + 3] = 255
                 }
             }
@@ -34,9 +29,9 @@ class TextureHelper {
         return (pixelData, width, height)
     }
 
-    // 旧方法保留（其他地方可能还在用）
-    static func createCheckerboardTexture(device: MTLDevice, isRed: Bool = false) -> MTLTexture? {
-        let (pixels, width, height) = makeCheckerboardPixels(isRed: isRed)
+    static func createCheckerboardTexture(device: MTLDevice,
+                                          tint: (UInt8, UInt8, UInt8) = (50, 50, 150)) -> MTLTexture? {
+        let (pixels, width, height) = makeCheckerboardPixels(tint: tint)
         let bytesPerRow = width * 4
         let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm,
