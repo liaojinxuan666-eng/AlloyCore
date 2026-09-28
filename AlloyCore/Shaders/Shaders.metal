@@ -345,7 +345,6 @@ kernel void rasterize_pass(
     uint2 gid [[thread_position_in_grid]],
     uint2 tileOrigin [[threadgroup_position_in_grid]]
 ) {
-    constexpr sampler texSampler(mag_filter::linear, min_filter::linear);
     if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
     if (gid.x < scissor.x || gid.x >= scissor.x + scissor.z) return;
     if (gid.y < scissor.y || gid.y >= scissor.y + scissor.w) return;
