@@ -47,7 +47,7 @@ AlloyCore/
 │   └── Shaders.metal             八个 Compute Kernel
 ├── Frontends/                    各 API 前端（可插拔）
 │   └── NVN/
-│       └── NVNFrontend.swift     NVN 骨架（未填实）
+│       └── NVNFrontend.swift     NVN 前端骨架（v0.7.0，接口侧）
 └── PostFX/                       AA/SR/SSAA（未接线，死代码）
 
 `TestApp/` 是宿主 iOS 应用，展示如何调用 GAL。
@@ -66,7 +66,7 @@ AlloyCore/
 │ 3. binning_count_pass → binning_offset_pass → binning_fill_pass
 │    (Tile Binning，三趟；无每 tile 容量上限)
 ▼
-[每个 tile 的三角形索引列表]
+[][每个 tile 的三角形索引列表]
 │ 4. rasterize_pass (每线程组处理一个 tile)
 │    含 8-way depth compare、Scissor 剔除
 ▼
@@ -80,10 +80,11 @@ AlloyCore/
 - 近平面裁剪（避免 w≤0 除零和三角形翻转）
 - Tile Binning（O(triangles) 而非 O(tiles × triangles)）
 - 三趟 binning：无每 tile 容量上限（v0.5.0）
-- **8 种深度比较函数**（v0.6.0）
-- **Scissor Rect**（v0.6.0）
-- **完整 Blend 状态编码**（v0.6.0，待 Render Pass 时启用）
-- **GPU Compute 顶点动画**（v0.4.0）
+- 8 种深度比较函数（v0.6.0）
+- Scissor Rect（v0.6.0）
+- 完整 Blend 状态编码（v0.6.0，待 Render Pass 时启用）
+- Edge-function 光栅化（v0.6.1）
+- GPU Compute 顶点动画（v0.4.0）
 - 背面剔除
 - Early-Z（逐像素深度测试）
 
@@ -91,11 +92,11 @@ AlloyCore/
 
 ## Compute Dispatch（v0.4.0）
 
-GAL 支持在渲染前派发通用 Compute Kernel——"我们的 CUDA"。
+GAL 支持在渲染前uv派Off发通用 Compute Kernel——"我们的 CUDA"。
 
-**接口**（状态机模型，对应 D3D11 / Vulkan 的 Bind → Dispatch）：
+**接口**（状态机模型，对应][ D3D11 / Vulkan 的 Bind → Dispatch）：
 
-```swift
+n```swift
 // 创建（一次性）
 gal.createComputePipeline(AlloyComputePipelineDescriptor(
     shaderName: "vertex_animate_pass",
@@ -135,6 +136,7 @@ Opcode 名称 参数 总长度
 0x11 BIND_COMPUTE_VERTEX_POOL [slot][poolOffsetFloats][byteOffsetFloats] 4
 0x12 COMPUTE_DISPATCH [threadCount][1][1] 4
 0x13 SET_SCISSOR [x][y][w][h] 5
+0x14 SET_VERTEX_LAYOUT [stride][posOffrmOff][colOff] 6
 
  
 修改协议时两处必须同步：
@@ -164,8 +166,18 @@ destroyComputePipeline(handle)
 clearColor(r, g, b, a)
 bindPipeline(handle)
 setViewport(width, height)
-setScissor(x, y, width, height)         // v0.6.0
+setScissor(x, y, width, height)             // v0.6.0
+setVertexLayout(layout)                     // v0.7.0
 setTransform(matrix: [Float])
+ 
+分散状态 setter（v0.7.0）：
+setDepthTestEnabled(bool)
+setDepthWriteEnabled(bool)
+setDepthCompareFunc(AlloyCompareFunc)
+setCullMode(AlloyCullMode)
+setBlendEnabled(bool)
+setBlendFactors(srcColor, dstColor, colorOp, srcAlpha, dstAlpha, alphaOp)
+setShaderID(UInt32)
  
 动态 buffer 更新：
 updateVertexBuffer(_ handle:, data:, offset:)
@@ -191,19 +203,23 @@ submit(to: renderer, drawable) -> MTLCommandBuffer?
  
 顶点格式
  
-模型空间输入（每顶点 12 个 float）：
-[0-2]  position.xyz
-[3-6]  color.rgba
-[7-8]  uv.xy
-[9-11] normal.xyz
+模型空间输入：
+不再固定为"12 个 float"。由 AlloyVertexLayout 决定——stride + 4 个偏移（position / uv / normal / color）。偏移 -1 表示该属性缺失。
  
-裁剪空间中间（每顶点 13 个 float）：
+默认 layout（匹配 TestApp 当前顶点顺序）：
+stride = 48
+positionOffset = 0
+uvOffset       = 28
+normalOffset   = 36
+colorOffset    = 12
+ 
+裁剪空间中间（每顶点 13 个 float，固定）：
 [0-3]  clip.xyzw
 [4-5]  uv.xy
 [6-8]  viewNormal.xyz
 [9-12] color.rgba
  
-屏幕空间输出（每顶点 13 个 float）：
+屏幕空间输出（每顶点 13 个 float，固定）：
 [0-1]  screenPosition.xy
 [2-3]  uv.xy
 [4]    invZ (1/clip.w)
@@ -214,11 +230,16 @@ submit(to: renderer, drawable) -> MTLCommandBuffer?
  
 Shader Kernel 签名（Swift ↔ Metal buffer 索引必须严格对齐）
  
-geometry_pass：
-buffer(0): device const float* inputVBO
+geometry_pass（v0.7.0 改为 raw-byte + layout 驱动）：
+buffer(0): device const uchar* inputVBO
 buffer(1): device float* outputVBO
 buffer(2): constant uint& vertexCount
 buffer(3): constant float4x4& transform
+buffer(4): constant uint& vertexStride
+buffer(5): constant int& positionOffset
+buffer(6): constant int& uvOffset
+buffer(7): constant int& normalOffset
+buffer(8): constant int& colorOffset
  
 clip_project_pass：
 buffer(0): device const float* inVerts
@@ -280,6 +301,41 @@ buffer(5): device const float* origin
  
 ⚠️ 变更 shader buffer 索引时，Swift 端 setBuffer 的 index: 参数必须同步。 
  
+NVN 前端（v0.7.0）
+ 
+Frontends/NVN/NVNFrontend.swift 是 NVN 风格的接口层，不是游戏运行时。
+ 
+当前做到的：
+• 用 NVN 风格的 API（setDepthFunc / setCullFace / bindVertexBuffer / drawElements 等）重建一个立方体
+• 渲染结果与直接调 GAL 完全一致
+• 证明了"NVN 风格调用 → GAL → Metal Compute"的翻译链路是通的 
+没做到的：
+• 不拦截真实 NVN 调用——没有 dylib hook、没有符号替换、没有进程注入
+• 不能跑 Switch 游戏——只支持约 15 个 NVN 调用，真实 NVN 有 200+ 个
+• 只支持"单 vertex buffer + interleaved attributes"，多 attrib / 多 buffer 未做 
+当前支持的 NVN 调用（映射到 GAL）：
+NVN 风格 GAL
+createBuffer(sizeBytes:) createVertexBuffer(data:)（先分配空 buffer）
+uploadBuffer(id, data, offsetFloats:) updateVertexBuffer
+bindVertexBuffer(id) 记录状态
+bindIndexBuffer(id) 记录状态
+bindTextureSlot(slot, unit:) 记录 texture slot
+setViewport(x, y, w, h) setViewport(w, h)（x/y 暂忽略）
+setScissor(x, y, w, h) setScissor
+setDepthTestEnable(bool) setDepthTestEnabled
+setDepthWriteEnable(bool) setDepthWriteEnabled
+setDepthFunc(f) setDepthCompareFunc
+setCullMode(enable, face) setCullMode（enable=false → .none）
+setBlendEnable(bool) setBlendEnabled
+setBlendFunc(...) setBlendFactors(...)
+setVertexLayout(...) setVertexLayout(AlloyVertexLayout(...))
+drawElements(indexCount, firstIndex, textureUnit) drawIndexed(...)
+
+ 
+为什么是"接口侧"而非"拦截侧"：拦截真实 NVN 需要 Switch 内核模拟、ARM 二进制加载、符号替换——那是模拟器内核的工作，不在渲染层范围内。AlloyCore 的定位是"给别的模拟器用的后端"。
+ 
+TestApp 的开关：useNVNForMesh0（默认 false）。true 时第一组立方体走 NVN 前端，其余走直接 GAL。两条路径画面等价。 
+ 
 关键设计决策
  
 1. 为什么用 [UInt32] 指令流而不是 [Float]？
@@ -330,7 +386,22 @@ AlloyCompareFunc 逆 Z 空间判据
  
 8. 为什么 Scissor 默认用"哨兵值"而不是直接用全屏？（v0.6.0）
  
-setScissor 是可选命令。GAL 默认编码 (0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) 作为哨兵，Renderer 检测到哨兵后填入全屏。这样"没调过 setScissor"和"调了全屏"在指令流里能区分——未来做 Render Pass 时有用。 
+setScissor 是可选命令。GAL 默认编码 (0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) 作为哨兵，Renderer 检测到哨兵后填入全屏。这样"没调过 setScissor"和"调了全屏"在指令流里能区分——未来做 Render Pass 时有用。
+ 
+9. 为什么 edge function 和 2×2 行列式解是等价的？（v0.6.1）
+ 
+对三角形 s0, s1, s2 和点 P：
+• area = cross(s1 - s0, s2 - s0)
+• 三个 edge function E0(P), E1(P), E2(P) 对应三条边
+• 内部点时：E0 + E1 + E2 = area，且同号
+• 除以 absArea 归一化后，三个权重和恒为 1 
+用 edge function 而不是行列式，是因为 E(P + dx) = E(P) + const——scanline 光栅器可以增量更新，不用每个像素重算。v0.6.1 只换了数学，还没做增量遍历。
+ 
+10. 为什么 GAL 用"集中 PSO"而不是"分散状态机"？（v0.4.0）
+ 
+集中式更贴近 D3D12 / Vulkan——一个 PSO 对象封装所有状态。但 D3D11 / NVN 是分散式的（SetDepthFunc 各一条）。
+ 
+v0.7.0 加了内部状态缓存：分散 setter 更新 currentPipeline，draw 前 flush 成 0x03 指令。这样两种前端都能翻译——前端只看到自己习惯的风格，指令流始终是集中的。 
  
 性能基线（iPhone，iOS 17+）
 场景 三角形 FPS
@@ -399,21 +470,26 @@ v0.6.0 Depth & Blend ✅
 [x] 完整混合模式（AlloyBlendFactor × 12、AlloyBlendOp × 5）
 [x] Scissor Rect（0x13 opcode）
 [x] BIND_PIPELINE 从 5 词扩到 13 词 
-v0.6.1 Edge-function 光栅化（补丁）
-[ ] 用 edge function 替代当前 2×2 行列式解
-[ ] 中高密度场景性能提升
-[ ] 需要 GPU 侧计时数据验证 
-v0.7.0 NVN 前端
-[ ] NVN 调用翻译到 GAL
-[ ] NVN 资源句柄映射（NVNbuffer / NVNtexture → GAL handle）
-[ ] NVN 状态映射（nvnCommandBufferSetDepthTestEnable 等）
-[ ] 动态顶点数据流 
-v0.8.0 Render Pass
+v0.6.1 Edge-Function Rasterization ✅
+[x] 用 edge function 替代 2×2 行列式解
+[x] 数学等价、画面不变
+[x] 为未来的 scanline 光栅器打基础 
+v0.7.0 NVN Frontend（接口侧）✅
+[x] 顶点格式进 GAL（AlloyVertexLayout + 0x14 opcode）
+[x] 分散状态机（setDepthFunc / setCullMode / setBlendFactors 等）
+[x] NVNFrontend 接口定义（15 个 NVN 风格调用）
+[x] 翻译链路验证：NVN → GAL → Metal，画面一致 
+v0.8.0 NVN Frontend（资源侧）
+[ ] 多 vertex buffer / 分离 attrib
+[ ] 多 texture slot（NVN 有 16 个，GAL 现在 2 个）
+[ ] Sampler 资源（AlloySampler + createSampler）
+[ ] Uniform buffer（bindUniformBuffer） 
+v0.9.0 Render Pass
 [ ] 渲染到纹理（多 render target）
 [ ] 真正的深度缓冲区（让 depthWriteEnabled 生效）
 [ ] 真正的 Blend（读 backbuffer）
 [ ] 模板测试 
-v0.9.0 着色器虚拟机
+v1.0.0 着色器虚拟机
 [ ] DXBC / DXIL 解析
 [ ] SPIR-V 解析
 [ ] 虚拟 ISA
@@ -434,18 +510,20 @@ v0.9.0 着色器虚拟机
 • 指令流无边界检查（越界崩溃）（v0.4.0）
 • addCompletedHandler 在 commit() 之后调用（Metal 断言崩溃）（v0.4.0）
 • updateVertexBuffer 缺失 count + 数据循环（流错位）（v0.4.0）
-• MAX_PER_TILE = 256 硬上限（v0.5.0，三趟 binning 根治） 
+• MAX_PER_TILE = 256 硬上限（v0.5.0，三趟 binning 根治）
+• 顶点格式硬编码 12 float（v0.7.0，改为 AlloyVertexLayout 驱动） 
 ⚠️ 待处理
 • 命令协议单份解析：已部分解决（AlloyOpcodeLength.of），但主 while 里的 switch 仍需手改
 • 资源只增不减：vertexPool / indexPool 只 append，无 destroy
 • 接收但未实现的状态：clearColor、blendEnabled、depthWriteEnabled、viewport 被编码但部分被忽略（等 Render Pass）
 • PostFX 是死代码：AlloyAA / AlloySR / AlloySSAA 未接入 renderer
-• NVNFrontend 是占位：纯注释骨架
+• NVNFrontend 是接口侧：支持 15 个 NVN 调用，不拦截真实调用，不跑 Switch 游戏
 • bindings.first 忽略 slot（v0.4.0 遗留）：多 buffer 绑定时会塌缩到第一个
 • dispatchCompute(groups:) 名不副实：实际传的是线程数，不是 group 数
 • dt 参数冗余：vertex_animate_pass 收到但未使用
 • poolVersion bump 后动画跳回原点：uploadGeometry 重传后 origin 快照更新，compute 需重新同步
-• MAX_PER_TILE warning：v0.5.0 后 kernel 不再使用，暂时保留作 binData 容量估算；未来 binData 动态分配时移除 
+• MAX_PER_TILE warning：v0.5.0 后 kernel 不再使用，暂时保留作 binData 容量估算；未来 binData 动态分配时移除
+• Scattered state 的 flushPipelineIfNeeded 只在 drawIndexed 调用：其他可能改变状态的地方未来也要记得 flush 
  
 终极目标
 [Windows x64 游戏]              [Switch 游戏]           [Vulkan 应用]
