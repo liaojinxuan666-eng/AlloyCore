@@ -14,6 +14,8 @@ public class AlloyGAL {
 
     private let device: MTLDevice
     private var textures: [MTLTexture?] = []
+    private var samplers: [MTLSamplerState?] = []
+    public private(set) var boundSamplerSlots: [UInt32] = [0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF]
 
     // v0.7.0 Step 2: 分散状态机
     private var currentPipeline = AlloyPipelineDescriptor()
