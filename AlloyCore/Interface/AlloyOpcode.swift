@@ -97,6 +97,9 @@ public enum AlloyOpcodeLength {
 
         case .setVertexLayout:
             return 6
+
+        case .bindSampler:
+            return 3
         }
     }
 
