@@ -333,6 +333,42 @@ public class AlloyGAL {
         guard Int(handle) < textures.count else { return }
         textures[Int(handle)] = nil
     }
+    
+    public func createSampler(_ desc: AlloySamplerDescriptor) -> AlloySamplerHandle {
+        let mtlDesc = MTLSamplerDescriptor()
+        mtlDesc.magFilter = desc.magFilter == .nearest ? .nearest : .linear
+        mtlDesc.minFilter = desc.minFilter == .nearest ? .nearest : .linear
+        mtlDesc.sAddressMode = mapAddressMode(desc.addressU)
+        mtlDesc.tAddressMode = mapAddressMode(desc.addressV)
+        guard let s = device.makeSamplerState(descriptor: mtlDesc) else { return 0xFFFFFFFF }
+        let handle = UInt32(samplers.count)
+        samplers.append(s)
+        return handle
+    }
+
+    public func destroySampler(_ handle: AlloySamplerHandle) {
+        guard Int(handle) < samplers.count else { return }
+        samplers[Int(handle)] = nil
+    }
+
+    public func getSampler(_ handle: AlloySamplerHandle) -> MTLSamplerState? {
+        guard Int(handle) < samplers.count else { return nil }
+        return samplers[Int(handle)]
+    }
+
+    public func bindSampler(_ handle: AlloySamplerHandle, slot: Int) {
+        guard slot >= 0, slot < boundSamplerSlots.count,
+              Int(handle) < samplers.count else { return }
+        boundSamplerSlots[slot] = handle
+    }
+
+    private func mapAddressMode(_ m: AlloyAddressMode) -> MTLSamplerAddressMode {
+        switch m {
+        case .clampToEdge: return .clampToEdge
+        case .repeatMode:  return .repeat
+        case .mirror:      return .mirrorRepeat
+        }
+    }
 
     public func getTexture(_ handle: AlloyTextureHandle) -> MTLTexture? {
         guard Int(handle) < textures.count else { return nil }
