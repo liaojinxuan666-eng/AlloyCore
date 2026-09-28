@@ -231,43 +231,43 @@ struct MetalView: UIViewRepresentable {
             gal.setViewport(width: Int(width), height: Int(height))
             gal.setTransform(matrix: matrixArray)
 
-            let startIdx: Int
-            if useNVNForMesh0 {
-                nvn.beginFrame()
-                nvn.setVertexLayout(stride: 48,
-                                    positionOffset: 0,
-                                    uvOffset: 28,
-                                    normalOffset: 36,
-                                    colorOffset: 12)
-                nvn.setDepthTestEnable(true)
-                nvn.setDepthWriteEnable(true)
-                nvn.setDepthFunc(.less)
-                nvn.setCullMode(enable: true, face: .back)
-                nvn.setBlendEnable(false)
-                nvn.bindVertexBuffer(nvnMesh0VertexId)
-                nvn.bindIndexBuffer(nvnMesh0IndexId)
-                nvn.bindTextureSlot(0, unit: 0)
-                nvn.drawElements(indexCount: meshRanges[0].count,
-                                 firstIndex: 0,
-                                 textureUnit: 0)
-                nvn.endFrame()
-                startIdx = 1
-            } else {
-                gal.bindPipeline(pipelineHandle)
-                startIdx = 0
-            }
+            nvn.beginFrame()
+            nvn.setVertexLayout(stride: 48,
+                                positionOffset: 0,
+                                uvOffset: 28,
+                                normalOffset: 36,
+                                colorOffset: 12)
+            nvn.setDepthTestEnable(true)
+            nvn.setDepthWriteEnable(true)
+            nvn.setDepthFunc(.less)
+            nvn.setCullMode(enable: true, face: .back)
+            nvn.setBlendEnable(false)
 
+            // Mesh 0
+            nvn.bindVertexBuffer(nvnMeshVertexIds[0])
+            nvn.bindIndexBuffer(nvnMeshIndexIds[0])
+            nvn.bindTextureSlot(0, unit: 0)
+            nvn.drawElements(indexCount: meshRanges[0].count, firstIndex: 0, textureUnit: 0)
+
+            // Compute 抖动（中间组）
             gal.computeTime = time
             gal.bindComputePipeline(computeHandle)
             gal.bindComputeBuffer(slot: 0, handle: meshRanges[1].vbo)
             gal.dispatchCompute(groups: SIMD3<UInt32>(UInt32(middleVerts.count / 12), 1, 1))
 
-            for i in startIdx..<meshRanges.count {
-                let mesh = meshRanges[i]
-                gal.drawIndexed(iboHandle: mesh.ibo,
-                                indexCount: mesh.count,
-                                firstIndex: 0,
-                                textureID: mesh.texID)
+            // Mesh 1
+            nvn.bindVertexBuffer(nvnMeshVertexIds[1])
+            nvn.bindIndexBuffer(nvnMeshIndexIds[1])
+            nvn.bindTextureSlot(1, unit: 0)
+            nvn.drawElements(indexCount: meshRanges[1].count, firstIndex: 0, textureUnit: 0)
+
+            // Mesh 2
+            nvn.bindVertexBuffer(nvnMeshVertexIds[2])
+            nvn.bindIndexBuffer(nvnMeshIndexIds[2])
+            nvn.bindTextureSlot(2, unit: 0)
+            nvn.drawElements(indexCount: meshRanges[2].count, firstIndex: 0, textureUnit: 0)
+
+            nvn.endFrame()
             }
 
             gal.endFrame()
