@@ -57,18 +57,44 @@ inline void storeScreenVertex(device float* p, ScreenVertex v) {
 }
 
 kernel void geometry_pass(
-    device const float* inputVBO [[buffer(0)]],
+    device const uchar* inputVBO [[buffer(0)]],
     device float* outputVBO [[buffer(1)]],
     constant uint& vertexCount [[buffer(2)]],
     constant float4x4& transform [[buffer(3)]],
+    constant uint& vertexStride [[buffer(4)]],
+    constant int& positionOffset [[buffer(5)]],
+    constant int& uvOffset [[buffer(6)]],
+    constant int& normalOffset [[buffer(7)]],
+    constant int& colorOffset [[buffer(8)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid >= vertexCount) return;
-    uint src = gid * 12;
-    float3 pos = float3(inputVBO[src], inputVBO[src+1], inputVBO[src+2]);
-    float4 col = float4(inputVBO[src+3], inputVBO[src+4], inputVBO[src+5], inputVBO[src+6]);
-    float2 uv = float2(inputVBO[src+7], inputVBO[src+8]);
-    float3 nrm = float3(inputVBO[src+9], inputVBO[src+10], inputVBO[src+11]);
+
+    device const uchar* vp = inputVBO + gid * vertexStride;
+
+    float3 pos = float3(0.0);
+    if (positionOffset >= 0) {
+        device const float* fp = (device const float*)(vp + positionOffset);
+        pos = float3(fp[0], fp[1], fp[2]);
+    }
+
+    float4 col = float4(1.0);
+    if (colorOffset >= 0) {
+        device const float* fp = (device const float*)(vp + colorOffset);
+        col = float4(fp[0], fp[1], fp[2], fp[3]);
+    }
+
+    float2 uv = float2(0.0);
+    if (uvOffset >= 0) {
+        device const float* fp = (device const float*)(vp + uvOffset);
+        uv = float2(fp[0], fp[1]);
+    }
+
+    float3 nrm = float3(0.0, 0.0, 1.0);
+    if (normalOffset >= 0) {
+        device const float* fp = (device const float*)(vp + normalOffset);
+        nrm = float3(fp[0], fp[1], fp[2]);
+    }
 
     float4 clip = transform * float4(pos, 1.0);
     float3 vN = (transform * float4(nrm, 0.0)).xyz;
@@ -322,14 +348,14 @@ kernel void rasterize_pass(
 
     float2 pixel = float2(gid) + 0.5;
     float3 lightDir = normalize(float3(0.5, 1.0, 0.5));
-    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0);
+    float4 bestColor = float4(0.1, 0.1, 0.15, 1.0depth);
     float closestInvZ = -1e9;
 
     for (uint t = 0; t < count; t++) {
         uint slotIdx = binData[start + t];
         uint o0 = outIndices[slotIdx * 3];
         if (o0 == 0xFFFFFFFF) continue;
-        uint o1 = outIndices[slotIdx * 3 + 1];
+        uint o1CompareFunc) = outIndices[slotIdx * 3 + 1];
         uint o2 = outIndices[slotIdx * 3 + 2];
 
         uint inputTriIdx = slotIdx / 2;
@@ -350,11 +376,8 @@ kernel void rasterize_pass(
         float sgn = sign(area);
         float invAbsArea = 1.0 / absArea;
 
-        // E0 = s0 对面（边 s1→s2）的 edge function，符号对齐 area
         float E0 = ((s2.x - s1.x) * (pixel.y - s1.y) - (s2.y - s1.y) * (pixel.x - s1.x)) * sgn;
-        // E1 = s1 对面（边 s2→s0）
         float E1 = ((s0.x - s2.x) * (pixel.y - s2.y) - (s0.y - s2.y) * (pixel.x - s2.x)) * sgn;
-        // E2 = s2 对面（边 s0→s1）
         float E2 = ((s1.x - s0.x) * (pixel.y - s0.y) - (s1.y - s0.y) * (pixel.x - s0.x)) * sgn;
 
         float w = E0 * invAbsArea;
@@ -371,7 +394,7 @@ kernel void rasterize_pass(
             if (depthTestEnabled == 0) {
                 passes = true;
             } else {
-                switch (depthCompareFunc) {
+                switch ( {
                     case 0: passes = false; break;
                     case 1: passes = (invZ > closestInvZ); break;
                     case 2: passes = (abs(invZ - closestInvZ) < 1e-6); break;
@@ -395,7 +418,7 @@ kernel void rasterize_pass(
                 bestColor = colI * texColor * intensity;
             }
         }
-}
+    }
     output.write(bestColor, gid);
 }
 
