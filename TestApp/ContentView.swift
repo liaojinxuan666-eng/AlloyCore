@@ -84,10 +84,11 @@ struct MetalView: UIViewRepresentable {
                 if i == 1 { middleVerts = grid.vertices }
             }
 
-            if useNVNForMesh0 {
-                let mesh0 = meshRanges[0]
-                nvnMesh0VertexId = nvn.registerBuffer(galHandle: mesh0.vbo)
-                nvnMesh0IndexId  = nvn.registerBuffer(galHandle: mesh0.ibo)
+            for mesh in meshRanges {
+                let vId = nvn.registerBuffer(galHandle: mesh.vbo)
+                let iId = nvn.registerBuffer(galHandle: mesh.ibo)
+                nvnMeshVertexIds.append(vId)
+                nvnMeshIndexIds.append(iId)
             }
 
             var pso = AlloyPipelineDescriptor()
