@@ -51,7 +51,7 @@ struct MetalView: UIViewRepresentable {
         var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
 
         // v0.7.0 Step 3b: 走 NVN 路径画第一组（默认关，改成 true 测试）
-        let useNVNForMesh0 = true
+        let useNVNForMesh0 = false
         var nvnMesh0VertexId: UInt32 = 0xFFFFFFFF
         var nvnMesh0IndexId:  UInt32 = 0xFFFFFFFF
 
