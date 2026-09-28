@@ -389,6 +389,8 @@ public class AlloyGAL {
         return renderer.render(
             drawable: drawable,
             textures: textures,
+            samplers: samplers,
+            boundSamplerSlots: boundSamplerSlots,
             computePipelines: computePipelines,
             computeTime: computeTime,
             rawCommands: frameCommandBuffer
