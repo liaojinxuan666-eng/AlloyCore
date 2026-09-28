@@ -4,47 +4,21 @@ import simd
 /// NVN 前端——用于 Switch 游戏
 ///
 /// 目标：把 NVN 调用翻译成 GAL 的中立调用。
-///
-/// 当前版本（v0.7.0 Step 3a）只定义接口，**未被 TestApp 调用**。
-/// Step 3b 会在 TestApp 里加开关，走这条路重建一个立方体，
-/// 验证接口映射正确。
-///
-/// 关于 NVN 的真实签名（参考 Ryujinx / yuzu 的 Nvn 实现）：
-///
-///   void nvnCommandBufferBindVertexBuffer(cmbuf, slot, buffer, offset)
-///   void nvnCommandBufferBindVertexAttrib(cmbuf, attrib, bufferSlot, size, fmt, stride, offset)
-///   void nvnCommandBufferBindIndexBuffer(cmbuf, buffer, offset, indexType)
-///   void nvnCommandBufferDrawElements(cmbuf, draw, indexType, count, indexOffset)
-///   void nvnCommandBufferSetViewport(cmbuf, x, y, w, h)
-///   void nvnCommandBufferSetScissor(cmbuf, x, y, w, h)
-///   void nvnCommandBufferSetDepthTestEnable(cmbuf, bool)
-///   void nvnCommandBufferSetDepthFunc(cmbuf, NVNdepthFunc)
-///   void nvnCommandBufferSetCullFaceEnable(cmbuf, bool)
-///   void nvnCommandBufferSetCullFace(cmbuf, NVNface)
-///   void nvnCommandBufferSetBlendEnable(cmbuf, target, bool)
-///   void nvnCommandBufferSetBlendFunc(cmbuf, target, srcRGB, dstRGB, srcA, dstA)
-///
-/// 这里简化成"单 vertex buffer + interleaved attributes"——最常见的用法。
+/// 当前版本只支持"单 vertex buffer + interleaved attributes"。
 /// 多 buffer / 分离 attribute 留到后续版本。
 public final class NVNFrontend {
 
     // MARK: - 资源映射
 
-    /// 前端持有的句柄 → GAL 句柄
     private var bufferMap: [UInt32: AlloyBufferHandle] = [:]
-    private var textureMap: [UInt32: AlloyTextureHandle] = [:]
     private var nextBufferId: UInt32 = 1
-    private var nextTextureId: UInt32 = 1
 
-    /// 当前帧绑定的顶点/索引 buffer（NVN 层句柄）
     private var boundVertexBufferId: UInt32 = 0xFFFFFFFF
     private var boundIndexBufferId: UInt32 = 0xFFFFFFFF
 
-    /// 当前帧绑定的纹理 slot（NVN 层句柄）
-    /// NVN 有 16 个 texture unit，先支持 2 个（和 GAL 现在一致）
-    private var boundTextures: [UInt32] = [0xFFFFFFFF, 0xFFFFFFFF]
+    /// 每个 texture unit 绑定一个 GAL slot（0 或 1）。
+    private var boundTextureSlots: [UInt32] = [0xFFFFFFFF, 0xFFFFFFFF]
 
-    /// GAL 引用（弱引用，防止循环）
     private weak var gal: AlloyGAL?
 
     public init() {}
@@ -55,13 +29,21 @@ public final class NVNFrontend {
 
     // MARK: - 资源创建
 
-    /// 对应 nvnBufferCreate + nvnBufferReserve。
-    /// sizeBytes 必须是 4 的倍数（float 对齐）。
+    /// 对应 nvnBufferCreate。分配空 buffer。
     public func createBuffer(sizeBytes: Int) -> UInt32 {
         guard let gal = gal else { return 0xFFFFFFFF }
         let floatCount = max(1, sizeBytes / 4)
         let zeros = [Float](repeating: 0, count: floatCount)
         let galHandle = gal.createVertexBuffer(data: zeros)
+        let nvnId = nextBufferId
+        nextBufferId += 1
+        bufferMap[nvnId] = galHandle
+        return nvnId
+    }
+
+    /// 注册一个已经在 GAL 里创建好的 buffer，返回 NVN 层 id。
+    /// 用于测试场景：TestApp 用 GAL 建好，再包一层 NVN 前端。
+    public func registerBuffer(galHandle: AlloyBufferHandle) -> UInt32 {
         let nvnId = nextBufferId
         nextBufferId += 1
         bufferMap[nvnId] = galHandle
@@ -78,64 +60,44 @@ public final class NVNFrontend {
         bufferMap.removeValue(forKey: nvnId)
     }
 
-    /// 对应 nvnTextureBuilder + nvnTextureInitialize。
-    /// 简化版：只支持 RGBA8。
-    public func createTexture(width: Int, height: Int, pixels: [UInt8]) -> UInt32 {
-        guard let gal = gal else { return 0xFFFFFFFF }
-        let desc = AlloyTextureDescriptor(width: width, height: height, data: pixels)
-        let galHandle = gal.createTexture(desc)
-        let nvnId = nextTextureId
-        nextTextureId += 1
-        textureMap[nvnId] = galHandle
-        return nvnId
-    }
+    // MARK: - 命令录制
 
-    // MARK: - 命令录制（NVN 风格）
-
-    /// 对应 nvnCommandBufferBindVertexBuffer。
     public func bindVertexBuffer(_ nvnId: UInt32) {
         boundVertexBufferId = nvnId
     }
 
-    /// 对应 nvnCommandBufferBindIndexBuffer。
     public func bindIndexBuffer(_ nvnId: UInt32) {
         boundIndexBufferId = nvnId
     }
 
-    /// 对应 nvnCommandBufferBindTexture(unit, tex)。
-    public func bindTexture(_ nvnId: UInt32, unit: Int) {
-        guard unit >= 0, unit < boundTextures.count else { return }
-        boundTextures[unit] = nvnId
+    /// 对应 nvnCommandBufferBindTexture。
+    /// 简化版：`slot` 现在是 GAL 的 texture slot（0=tex0, 1=tex1）。
+    /// 真正的 NVN texture → GAL slot 映射在后续版本。
+    public func bindTextureSlot(_ slot: UInt32, unit: Int) {
+        guard unit >= 0, unit < boundTextureSlots.count else { return }
+        boundTextureSlots[unit] = slot
     }
 
-    /// 对应 nvnCommandBufferSetViewport(x, y, w, h)。
-    /// GAL 现在只接受 (w, h)——x/y 暂忽略。
     public func setViewport(x: Int, y: Int, width: Int, height: Int) {
         gal?.setViewport(width: width, height: height)
     }
 
-    /// 对应 nvnCommandBufferSetScissor(x, y, w, h)。
     public func setScissor(x: Int, y: Int, width: Int, height: Int) {
         gal?.setScissor(x: x, y: y, width: width, height: height)
     }
 
-    /// 对应 nvnCommandBufferSetDepthTestEnable。
     public func setDepthTestEnable(_ enable: Bool) {
         gal?.setDepthTestEnabled(enable)
     }
 
-    /// 对应 nvnCommandBufferSetDepthWriteEnable。
     public func setDepthWriteEnable(_ enable: Bool) {
         gal?.setDepthWriteEnabled(enable)
     }
 
-    /// 对应 nvnCommandBufferSetDepthFunc。
     public func setDepthFunc(_ f: AlloyCompareFunc) {
         gal?.setDepthCompareFunc(f)
     }
 
-    /// 对应 nvnCommandBufferSetCullFaceEnable + SetCullFace。
-    /// NVN 用 (enable: Bool, face: NVNface)。GAL 用三态 enum。
     public func setCullMode(enable: Bool, face: AlloyCullMode) {
         if !enable {
             gal?.setCullMode(.none)
@@ -144,12 +106,10 @@ public final class NVNFrontend {
         }
     }
 
-    /// 对应 nvnCommandBufferSetBlendEnable。
     public func setBlendEnable(_ enable: Bool) {
         gal?.setBlendEnabled(enable)
     }
 
-    /// 对应 nvnCommandBufferSetBlendFunc。
     public func setBlendFunc(srcColor: AlloyBlendFactor,
                              dstColor: AlloyBlendFactor,
                              colorOp: AlloyBlendOp,
@@ -164,8 +124,6 @@ public final class NVNFrontend {
                              alphaOp: alphaOp)
     }
 
-    /// 对应 nvnCommandBufferBindVertexAttrib（简化版：一次性给出全部偏移）。
-    /// 真实 NVN 是逐 attrib 绑定，这里简化成 interleaved。
     public func setVertexLayout(stride: UInt32,
                                 positionOffset: Int32,
                                 uvOffset: Int32,
@@ -179,22 +137,21 @@ public final class NVNFrontend {
         gal?.setVertexLayout(layout)
     }
 
-    /// 对应 nvnCommandBufferDrawElements。
     public func drawElements(indexCount: UInt32,
                              firstIndex: UInt32,
                              textureUnit: Int = 0) {
         guard let gal = gal,
               let galIbo = bufferMap[boundIndexBufferId] else { return }
-        let texId: UInt32
-        if textureUnit >= 0, textureUnit < boundTextures.count {
-            texId = boundTextures[textureUnit]
+        let slot: UInt32
+        if textureUnit >= 0, textureUnit < boundTextureSlots.count {
+            slot = boundTextureSlots[textureUnit]
         } else {
-            texId = 0xFFFFFFFF
+            slot = 0
         }
         gal.drawIndexed(iboHandle: galIbo,
                         indexCount: indexCount,
                         firstIndex: firstIndex,
-                        textureID: texId)
+                        textureID: slot)
     }
 
     // MARK: - 帧生命周期
@@ -202,7 +159,7 @@ public final class NVNFrontend {
     public func beginFrame() {
         boundVertexBufferId = 0xFFFFFFFF
         boundIndexBufferId = 0xFFFFFFFF
-        boundTextures = [0xFFFFFFFF, 0xFFFFFFFF]
+        boundTextureSlots = [0xFFFFFFFF, 0xFFFFFFFF]
     }
 
     public func endFrame() {
