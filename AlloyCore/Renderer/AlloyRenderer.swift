@@ -158,7 +158,7 @@ public class AlloyRenderer {
                                                                 width: lowWidth ,
                                                                 height: lowHeight,
                                                                 mipmapped: false)
-            desc.usage = [0.shaderRead, .shaderWrite]
+            desc.usage = [.shaderRead, .shaderWrite]
            ))
 
  lowResTexture = device.makeTexture       (descriptor: desc)
