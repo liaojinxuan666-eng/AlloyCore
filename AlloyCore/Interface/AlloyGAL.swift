@@ -15,6 +15,10 @@ public class AlloyGAL {
     private let device: MTLDevice
     private var textures: [MTLTexture?] = []
 
+    // v0.7.0 Step 2: 分散状态机
+    private var currentPipeline = AlloyPipelineDescriptor()
+    private var pipelineDirty = false
+
     private var frameActive = false
     private var frameCommandBuffer: [UInt32] = []
     public private(set) var poolVersion: UInt32 = 0
@@ -26,6 +30,8 @@ public class AlloyGAL {
     public func beginFrame() {
         frameActive = true
         frameCommandBuffer.removeAll(keepingCapacity: true)
+        currentPipeline = AlloyPipelineDescriptor()
+        pipelineDirty = false
     }
 
     public func endFrame() {
@@ -79,30 +85,86 @@ public class AlloyGAL {
         computePipelines[Int(handle)] = nil
     }
 
+    // MARK: - 分散状态 setter（v0.7.0 Step 2）
+
+    public func bindPipeline(_ handle: AlloyPipelineHandle) {
+        guard Int(handle) < pipelines.count,
+              let desc = pipelines[Int(handle)] else { return }
+        currentPipeline = desc
+        pipelineDirty = true
+    }
+
+    public func setDepthTestEnabled(_ v: Bool) {
+        currentPipeline.depthTestEnabled = v
+        pipelineDirty = true
+    }
+
+    public func setDepthWriteEnabled(_ v: Bool) {
+        currentPipeline.depthWriteEnabled = v
+        pipelineDirty = true
+    }
+
+    public func setDepthCompareFunc(_ v: AlloyCompareFunc) {
+        currentPipeline.depthCompareFunc = v
+        pipelineDirty = true
+    }
+
+    public func setCullMode(_ v: AlloyCullMode) {
+        currentPipeline.cullMode = v
+        pipelineDirty = true
+    }
+
+    public func setBlendEnabled(_ v: Bool) {
+        currentPipeline.blendEnabled = v
+        pipelineDirty = true
+    }
+
+    public func setBlendFactors(srcColor: AlloyBlendFactor,
+                                dstColor: AlloyBlendFactor,
+                                colorOp: AlloyBlendOp,
+                                srcAlpha: AlloyBlendFactor,
+                                dstAlpha: AlloyBlendFactor,
+                                alphaOp: AlloyBlendOp) {
+        currentPipeline.srcColorBlend = srcColor
+        currentPipeline.dstColorBlend = dstColor
+        currentPipeline.colorBlendOp  = colorOp
+        currentPipeline.srcAlphaBlend = srcAlpha
+        currentPipeline.dstAlphaBlend = dstAlpha
+        currentPipeline.alphaBlendOp  = alphaOp
+        pipelineDirty = true
+    }
+
+    public func setShaderID(_ id: UInt32) {
+        currentPipeline.shaderID = id
+        pipelineDirty = true
+    }
+
+    // MARK: - 内部 flush
+
+    private func flushPipelineIfNeeded() {
+        guard pipelineDirty else { return }
+        frameCommandBuffer.append(0x03)
+        frameCommandBuffer.append(currentPipeline.depthTestEnabled ? 1 : 0)
+        frameCommandBuffer.append(currentPipeline.cullMode.rawValue)
+        frameCommandBuffer.append(currentPipeline.blendEnabled ? 1 : 0)
+        frameCommandBuffer.append(currentPipeline.shaderID)
+        frameCommandBuffer.append(currentPipeline.depthCompareFunc.rawValue)
+        frameCommandBuffer.append(currentPipeline.depthWriteEnabled ? 1 : 0)
+        frameCommandBuffer.append(currentPipeline.srcColorBlend.rawValue)
+        frameCommandBuffer.append(currentPipeline.dstColorBlend.rawValue)
+        frameCommandBuffer.append(currentPipeline.colorBlendOp.rawValue)
+        frameCommandBuffer.append(currentPipeline.srcAlphaBlend.rawValue)
+        frameCommandBuffer.append(currentPipeline.dstAlphaBlend.rawValue)
+        frameCommandBuffer.append(currentPipeline.alphaBlendOp.rawValue)
+        pipelineDirty = false
+    }
+
     public func clearColor(r: Float, g: Float, b: Float, a: Float) {
         frameCommandBuffer.append(0x02)
         frameCommandBuffer.append(r.bitPattern)
         frameCommandBuffer.append(g.bitPattern)
         frameCommandBuffer.append(b.bitPattern)
         frameCommandBuffer.append(a.bitPattern)
-    }
-
-    public func bindPipeline(_ handle: AlloyPipelineHandle) {
-        guard Int(handle) < pipelines.count,
-              let desc = pipelines[Int(handle)] else { return }
-        frameCommandBuffer.append(0x03)
-        frameCommandBuffer.append(desc.depthTestEnabled ? 1 : 0)
-        frameCommandBuffer.append(desc.cullMode.rawValue)
-        frameCommandBuffer.append(desc.blendEnabled ? 1 : 0)
-        frameCommandBuffer.append(desc.shaderID)
-        frameCommandBuffer.append(desc.depthCompareFunc.rawValue)
-        frameCommandBuffer.append(desc.depthWriteEnabled ? 1 : 0)
-        frameCommandBuffer.append(desc.srcColorBlend.rawValue)
-        frameCommandBuffer.append(desc.dstColorBlend.rawValue)
-        frameCommandBuffer.append(desc.colorBlendOp.rawValue)
-        frameCommandBuffer.append(desc.srcAlphaBlend.rawValue)
-        frameCommandBuffer.append(desc.dstAlphaBlend.rawValue)
-        frameCommandBuffer.append(desc.alphaBlendOp.rawValue)
     }
 
     public func setViewport(width: Int, height: Int) {
@@ -139,6 +201,7 @@ public class AlloyGAL {
                             firstIndex: UInt32,
                             textureID: UInt32) {
         guard Int(iboHandle) < indexBuffers.count else { return }
+        flushPipelineIfNeeded()
         let globalStart = indexBuffers[Int(iboHandle)].offset + firstIndex
         frameCommandBuffer.append(0x01)
         frameCommandBuffer.append(globalStart)
