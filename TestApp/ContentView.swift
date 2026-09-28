@@ -66,9 +66,8 @@ struct MetalView: UIViewRepresentable {
         var computeHandle: AlloyComputePipelineHandle = 0
         var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
 
-        let useNVNForMesh0 = false
-        var nvnMesh0VertexId: UInt32 = 0xFFFFFFFF
-        var nvnMesh0IndexId:  UInt32 = 0xFFFFFFFF
+        var nvnMeshVertexIds: [UInt32] = []
+        var nvnMeshIndexIds:  [UInt32] = []
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
