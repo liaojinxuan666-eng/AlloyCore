@@ -38,6 +38,7 @@ public enum AlloyOpcode: UInt32 {
     case computeDispatch         = 0x12
     case setScissor              = 0x13
     case setVertexLayout         = 0x14
+    case bindSampler             = 0x15
 }
 
 public enum AlloyOpcodeLength {
