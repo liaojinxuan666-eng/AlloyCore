@@ -275,6 +275,10 @@ public class AlloyRenderer {
                                               rawCommands[ci + 2],
                                               rawCommands[ci + 3],
                                               rawCommands[ci + 4])
+            
+            case .bindSampler:
+                // v0.8.0 Step 2a: 只是占位，Step 2b 才会真接线
+                break
 
             case .clearColor, .setViewport, .setTransform,
                  .bindVertexBuffer, .bindIndexBuffer:
