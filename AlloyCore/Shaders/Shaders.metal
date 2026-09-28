@@ -341,26 +341,25 @@ kernel void rasterize_pass(
         float2 s1 = v1.position;
         float2 s2 = v2.position;
 
-        float cross2D = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
-        if (cullMode == 1 && cross2D <= 0.0) continue;
-        if (cullMode == 2 && cross2D >= 0.0) continue;
+        float area = (s1.x - s0.x) * (s2.y - s0.y) - (s1.y - s0.y) * (s2.x - s0.x);
+        if (cullMode == 1 && area <= 0.0) continue;
+        if (cullMode == 2 && area >= 0.0) continue;
 
-        float2 e0 = s1 - s0;
-        float2 e1 = s2 - s0;
-        float2 e2 = pixel - s0;
+        float absArea = abs(area);
+        if (absArea < 1e-9) continue;
+        float sgn = sign(area);
+        float invAbsArea = 1.0 / absArea;
 
-        float d00 = dot(e0, e0);
-        float d01 = dot(e0, e1);
-        float d02 = dot(e0, e2);
-        float d11 = dot(e1, e1);
-        float d12 = dot(e1, e2);
+        // E0 = s0 对面（边 s1→s2）的 edge function，符号对齐 area
+        float E0 = ((s2.x - s1.x) * (pixel.y - s1.y) - (s2.y - s1.y) * (pixel.x - s1.x)) * sgn;
+        // E1 = s1 对面（边 s2→s0）
+        float E1 = ((s0.x - s2.x) * (pixel.y - s2.y) - (s0.y - s2.y) * (pixel.x - s2.x)) * sgn;
+        // E2 = s2 对面（边 s0→s1）
+        float E2 = ((s1.x - s0.x) * (pixel.y - s0.y) - (s1.y - s0.y) * (pixel.x - s0.x)) * sgn;
 
-        float det = d00 * d11 - d01 * d01;
-        if (abs(det) < 1e-9) continue;
-        float invDen = 1.0 / det;
-        float u = (d11 * d02 - d01 * d12) * invDen;
-        float v = (d00 * d12 - d01 * d02) * invDen;
-        float w = 1.0 - u - v;
+        float w = E0 * invAbsArea;
+        float u = E1 * invAbsArea;
+        float v = E2 * invAbsArea;
 
         if (u >= 0.0 && v >= 0.0 && w >= 0.0) {
             float iz0 = v0.invZ;
