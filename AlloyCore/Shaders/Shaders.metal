@@ -422,10 +422,10 @@ kernel void rasterize_pass(
                 uint tid = triTexIDs[inputTriIdx];
                 float4 texColor;
                 switch (tid) {
-                    case 1: texColor = tex1.sample(texSampler, uvI); break;
-                    case 2: texColor = tex2.sample(texSampler, uvI); break;
-                    case 3: texColor = tex3.sample(texSampler, uvI); break;
-                    default: texColor = tex0.sample(texSampler, uvI); break;
+                    case 1: texColor = tex1.sample(sam1, uvI); break;
+                    case 2: texColor = tex2.sample(sam2, uvI); break;
+                    case 3: texColor = tex3.sample(sam3, uvI); break;
+                    default: texColor = tex0.sample(sam0, uvI); break;
                 }
                 float intensity = max(dot(nrm, lightDir), 0.2);
                 bestColor = colI * texColor * intensity;
