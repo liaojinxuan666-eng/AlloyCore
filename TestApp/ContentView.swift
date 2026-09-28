@@ -15,15 +15,17 @@ struct MetalView: UIViewRepresentable {
         guard let renderer = AlloyRenderer() else { return view }
         context.coordinator.renderer = renderer
 
-        // 把 GAL 附着到 NVN 前端
         context.coordinator.nvn.attach(to: context.coordinator.gal)
 
-        let blue = TextureHelper.makeCheckerboardPixels(isRed: false)
+        let blue = TextureHelper.makeCheckerboardPixels(tint: (50, 50, 150))
         _ = context.coordinator.gal.createTexture(
             AlloyTextureDescriptor(width: blue.width, height: blue.height, data: blue.pixels))
-        let red = TextureHelper.makeCheckerboardPixels(isRed: true)
+        let red = TextureHelper.makeCheckerboardPixels(tint: (200, 50, 50))
         _ = context.coordinator.gal.createTexture(
             AlloyTextureDescriptor(width: red.width, height: red.height, data: red.pixels))
+        let yellow = TextureHelper.makeCheckerboardPixels(tint: (200, 200, 50))
+        _ = context.coordinator.gal.createTexture(
+            AlloyTextureDescriptor(width: yellow.width, height: yellow.height, data: yellow.pixels))
 
         context.coordinator.buildScene()
         context.coordinator.uploadScene(to: renderer)
@@ -50,7 +52,6 @@ struct MetalView: UIViewRepresentable {
         var computeHandle: AlloyComputePipelineHandle = 0
         var meshRanges: [(vbo: AlloyBufferHandle, ibo: AlloyBufferHandle, count: UInt32, texID: UInt32)] = []
 
-        // v0.7.0 Step 3b: 走 NVN 路径画第一组（默认关，改成 true 测试）
         let useNVNForMesh0 = false
         var nvnMesh0VertexId: UInt32 = 0xFFFFFFFF
         var nvnMesh0IndexId:  UInt32 = 0xFFFFFFFF
@@ -64,7 +65,8 @@ struct MetalView: UIViewRepresentable {
                 let grid = buildCubeGrid(offsetX: xOffset)
                 let vbo = gal.createVertexBuffer(data: grid.vertices)
                 let ibo = gal.createIndexBuffer(data: grid.indices, vertexHandle: vbo)
-                meshRanges.append((vbo: vbo, ibo: ibo, count: UInt32(grid.indices.count), texID: UInt32(i % 2)))
+                let tid = i == 2 ? UInt32(2) : UInt32(i % 2)
+                meshRanges.append((vbo: vbo, ibo: ibo, count: UInt32(grid.indices.count), texID: tid))
                 if i == 1 { middleVerts = grid.vertices }
             }
 
@@ -217,7 +219,6 @@ struct MetalView: UIViewRepresentable {
 
             let startIdx: Int
             if useNVNForMesh0 {
-                // 第一组走 NVN 前端
                 nvn.beginFrame()
                 nvn.setVertexLayout(stride: 48,
                                     positionOffset: 0,
@@ -242,13 +243,11 @@ struct MetalView: UIViewRepresentable {
                 startIdx = 0
             }
 
-            // 中间组 compute 抖动
             gal.computeTime = time
             gal.bindComputePipeline(computeHandle)
             gal.bindComputeBuffer(slot: 0, handle: meshRanges[1].vbo)
             gal.dispatchCompute(groups: SIMD3<UInt32>(UInt32(middleVerts.count / 12), 1, 1))
 
-            // 剩下两组（或全部三组，看开关）
             for i in startIdx..<meshRanges.count {
                 let mesh = meshRanges[i]
                 gal.drawIndexed(iboHandle: mesh.ibo,
