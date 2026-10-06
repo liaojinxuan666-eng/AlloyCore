@@ -26,7 +26,7 @@ struct MetalView: UIViewRepresentable {
         let yellow = TextureHelper.makeCheckerboardPixels(tint: (200, 200, 50))
         _ = context.coordinator.gal.createTexture(
             AlloyTextureDescriptor(width: yellow.width, height: yellow.height, data: yellow.pixels))
-            
+
         var linearDesc = AlloySamplerDescriptor()
         linearDesc.magFilter = .linear
         linearDesc.minFilter = .linear
@@ -41,6 +41,7 @@ struct MetalView: UIViewRepresentable {
         context.coordinator.gal.bindSampler(linearSamp, slot: 1)
         context.coordinator.gal.bindSampler(nearestSamp, slot: 2)
         context.coordinator.gal.bindSampler(nearestSamp, slot: 3)
+
         context.coordinator.buildScene()
         context.coordinator.uploadScene(to: renderer)
 
@@ -268,7 +269,6 @@ struct MetalView: UIViewRepresentable {
             nvn.drawElements(indexCount: meshRanges[2].count, firstIndex: 0, textureUnit: 0)
 
             nvn.endFrame()
-        }
 
             gal.endFrame()
 
